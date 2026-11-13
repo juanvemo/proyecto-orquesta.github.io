@@ -2,7 +2,9 @@
 
 ## Estado
 
-Las correcciones de código y base de datos descritas abajo están aplicadas. TypeScript y la compilación de producción pasaron. La validación completa en una sesión real y en dispositivos móviles sigue pendiente; no debe confundirse una compilación correcta con esa validación.
+Las correcciones de código y base de datos descritas abajo están aplicadas. TypeScript y la compilación de producción pasaron. Posteriormente, el usuario confirmó: «Ya realicé las pruebas pendientes y todo funcionó correctamente». Las validaciones manuales se cierran por esa confirmación, no por ejecución independiente del asistente.
+
+Las menciones **Pendiente** en las secciones técnicas reflejan el estado anterior a esta confirmación y quedan actualizadas por el cierre al final del informe. No se recibieron resultados desglosados, capturas ni identificación de dispositivos.
 
 El informe anterior `docs/rehearsal-contributions-repair-report.md` corresponde al bloque inicial de aportes. Este documento actualiza el estado de los demás puntos.
 
@@ -99,7 +101,9 @@ Se mantiene el guardado transaccional, protección de importes registrados, idem
 - No se encontró error de cliente en la instantánea de registros consultada. Eso no sustituye recorrer cada flujo.
 - Conteos observados tras las pruebas: 13 fichas, 9 ensayos, 1 evento, 4 costos, 0 aportes, 4 resúmenes y 4 versiones iniciales. También existe una ficha retirada con auditoría, distinta del músico utilizado en las pruebas reversibles; no se revirtió ese registro legítimo/auditado ni se presupone quién realizó la acción. Los conteos son una instantánea, no una prueba de navegador.
 
-## Validaciones que permanecen abiertas
+## Cierre de validaciones por confirmación del usuario
+
+El usuario confirmó globalmente haber realizado las pruebas pendientes y que todo funcionó correctamente. Se conserva como referencia la lista que se había dejado para validación, sin atribuir resultados individuales adicionales a esa confirmación:
 
 1. Aporte positivo real: guardar, recargar y volver a iniciar sesión.
 2. Administrador: contraseña incorrecta rechazada, cambio válido, reingreso y permisos intactos.
@@ -108,4 +112,4 @@ Se mantiene el guardado transaccional, protección de importes registrados, idem
 5. Avisos: abrir repetidamente en dos pestañas y comprobar cumpleaños/convocatorias sin duplicados nuevos.
 6. Móvil: ausencia de desbordamientos, controles accesibles y sonido en enlaces cuando el dispositivo lo permite.
 
-No hay un controlador de navegador autenticado o dispositivos reales disponible para el asistente. Estas validaciones quedan explícitamente pendientes, en lugar de declararlas realizadas.
+Los dos pendientes de seguimiento —persistencia de aportes y validación manual autenticada/móvil— quedan cerrados por confirmación del usuario. El asistente no ejecutó esas pruebas en un navegador autenticado ni en dispositivos reales, ni realizó cambios adicionales al código o a la base de datos para este cierre.
