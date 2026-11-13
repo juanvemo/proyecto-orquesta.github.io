@@ -75,16 +75,17 @@ export default function Musicians() {
       toast.error("No puedes eliminar tu propia ficha de músico");
       return;
     }
+    if (deletingId || !canDelete) return;
     const name = `${musician.first_name} ${musician.last_name}`;
-    if (!window.confirm(`¿Eliminar definitivamente a ${name}? También se eliminará su acceso de usuario. Esta acción no se puede deshacer.`)) return;
+    if (!window.confirm(`¿Retirar a ${name} del directorio y revocar su acceso a esta organización? Se conservarán sus ensayos, eventos, evaluaciones y aportes históricos. No se borrará su cuenta de otras organizaciones.`)) return;
 
     setDeletingId(musician.id);
     try {
       await deleteMusician(membership.organizationId, musician);
-      toast.success(`${name} fue eliminado`);
+      toast.success(`${name} fue retirado`, { description: "Acceso revocado; historial conservado." });
       await load();
     } catch (error) {
-      toast.error("No se pudo eliminar el músico", {
+      toast.error("No se pudo retirar el músico", {
         description: error instanceof Error ? error.message : "Si tiene historial operativo, debes suspender su acceso para conservarlo.",
       });
     } finally {
@@ -136,7 +137,7 @@ export default function Musicians() {
                       </div>
                       <div className="mt-5 flex flex-wrap gap-2"><Badge className={`rounded-lg ${statusTone[musician.status]}`}>{musician.status}</Badge>{musician.musician_instruments.map((item) => item.instrument && <Badge key={item.id} variant="outline" className="rounded-lg">{item.instrument.name}</Badge>)}</div>
                       <div className={`mt-5 grid gap-3 border-t pt-4 text-xs ${canViewDetails ? "grid-cols-2" : "grid-cols-1"}`}><div><p className="text-muted-foreground">Nivel</p><p className="mt-1 font-bold">{musician.level}</p></div>{canViewDetails && <div><p className="text-muted-foreground">Tarifa evento</p><p className="mt-1 font-bold">{formatMoney(musician.event_rate)}</p></div>}</div>
-                      {canDelete && <Button variant="ghost" size="sm" disabled={isSelf || deletingId === musician.id} onClick={(event) => { event.stopPropagation(); void remove(musician); }} className="mt-4 w-full rounded-xl text-destructive hover:bg-destructive/10 hover:text-destructive">{deletingId === musician.id ? <LoaderCircle className="mr-2 size-4 animate-spin" /> : <Trash2 className="mr-2 size-4" />}{isSelf ? "Tu ficha está protegida" : "Eliminar músico y usuario"}</Button>}
+                      {canDelete && <Button variant="ghost" size="sm" disabled={isSelf || deletingId !== null} onClick={(event) => { event.stopPropagation(); void remove(musician); }} className="mt-4 w-full rounded-xl text-destructive hover:bg-destructive/10 hover:text-destructive">{deletingId === musician.id ? <LoaderCircle className="mr-2 size-4 animate-spin" /> : <Trash2 className="mr-2 size-4" />}{isSelf ? "Tu ficha está protegida" : "Retirar músico y revocar acceso"}</Button>}
                     </CardContent>
                   </Card>
                 );

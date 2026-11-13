@@ -24,9 +24,10 @@ export function CelebrationsBanner() {
       });
   }, [membership]);
 
-  const now = new Date();
-  const todayKey = `${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-  const month = now.getMonth() + 1;
+  const dateKey = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  const now = new Date(`${dateKey}T12:00:00`);
+  const todayKey = dateKey.slice(5);
+  const month = Number(dateKey.slice(5, 7));
   const today = useMemo(() => birthdays.filter((person) => person.birth_date.slice(5) === todayKey), [birthdays, todayKey]);
   const thisMonth = useMemo(() => birthdays
     .filter((person) => Number(person.birth_date.slice(5, 7)) === month)

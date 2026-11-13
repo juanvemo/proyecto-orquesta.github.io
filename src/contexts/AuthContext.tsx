@@ -129,6 +129,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => data.subscription.unsubscribe();
   }, [loadAccess]);
 
+  useEffect(() => {
+    if (!session) return;
+    const refresh = () => { void loadAccess(session); };
+    const interval = window.setInterval(refresh, 60_000);
+    window.addEventListener("focus", refresh);
+    const channel = supabase.channel(`access-${session.user.id}`).on("postgres_changes", {
+      event: "UPDATE", schema: "public", table: "organization_memberships", filter: `user_id=eq.${session.user.id}`,
+    }, refresh).subscribe();
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refresh);
+      void supabase.removeChannel(channel);
+    };
+  }, [session, loadAccess]);
+
   const value = useMemo<AuthContextValue>(() => ({
     session,
     user,
@@ -137,7 +152,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     loading,
     error,
     isApproved: membership?.approvalStatus === "APPROVED",
-    hasPermission: (permission) => membership?.permissions.includes(permission) ?? false,
+    hasPermission: (permission) => membership?.approvalStatus === "APPROVED" && membership.permissions.includes(permission),
     refreshAccess: () => loadAccess(session),
     signOut: async () => {
       setError(null);

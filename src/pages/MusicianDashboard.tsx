@@ -51,10 +51,10 @@ export default function MusicianDashboard() {
   useEffect(() => { void load(); }, [load]);
 
   const today = bogotaDate();
-  const upcoming = useMemo(() => events.filter((event) => event.event_date >= today && !["REALIZADO", "CANCELADO", "CERRADO"].includes(event.status)).sort(byDateAscending), [events, today]);
+  const upcoming = useMemo(() => events.filter((event) => event.assignment_status !== "NO DISPONIBLE" && event.event_date >= today && !["REALIZADO", "CANCELADO", "CERRADO"].includes(event.status)).sort(byDateAscending), [events, today]);
   const orderedEvents = useMemo(() => [...events].sort((a, b) => {
-    const aUpcoming = a.event_date >= today && !["REALIZADO", "CANCELADO", "CERRADO"].includes(a.status);
-    const bUpcoming = b.event_date >= today && !["REALIZADO", "CANCELADO", "CERRADO"].includes(b.status);
+    const aUpcoming = a.assignment_status !== "NO DISPONIBLE" && a.event_date >= today && !["REALIZADO", "CANCELADO", "CERRADO"].includes(a.status);
+    const bUpcoming = b.assignment_status !== "NO DISPONIBLE" && b.event_date >= today && !["REALIZADO", "CANCELADO", "CERRADO"].includes(b.status);
     if (aUpcoming !== bUpcoming) return aUpcoming ? -1 : 1;
     return aUpcoming ? byDateAscending(a, b) : byDateDescending(a, b);
   }), [events, today]);

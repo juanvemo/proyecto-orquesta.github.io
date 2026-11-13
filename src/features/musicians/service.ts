@@ -14,7 +14,7 @@ function normalizeMusician(value: unknown): Musician {
 }
 
 export async function listMusicians(organizationId: string) {
-  const { data, error } = await supabase.from("musicians").select(musicianSelect).eq("organization_id", organizationId).order("first_name");
+  const { data, error } = await supabase.from("musicians").select(musicianSelect).eq("organization_id", organizationId).is("deleted_at", null).order("first_name");
   if (error) throw error;
   return (data ?? []).map(normalizeMusician);
 }
@@ -91,28 +91,11 @@ export async function setMusicianStatus(organizationId: string, musicianId: stri
 }
 
 export async function deleteMusician(organizationId: string, musician: Pick<Musician, "id" | "user_id">) {
-  if (!musician.user_id) {
-    const { error } = await supabase.from("musicians").delete().eq("organization_id", organizationId).eq("id", musician.id);
-    if (error) throw error;
-    return;
-  }
-
-  const { error } = await supabase.functions.invoke("admin-manage-user", {
-    body: { action: "delete", organization_id: organizationId, user_id: musician.user_id },
+  const { error } = await supabase.rpc("archive_musician", {
+    target_organization_id: organizationId,
+    target_musician_id: musician.id,
   });
-  if (!error) return;
-
-  let message = error.message;
-  const context = (error as { context?: Response }).context;
-  if (context) {
-    try {
-      const payload = await context.clone().json() as { error?: string };
-      if (payload.error) message = payload.error;
-    } catch {
-      // Preserve the invocation error when the response has no JSON body.
-    }
-  }
-  throw new Error(message);
+  if (error) throw new Error(error.message);
 }
 
 export async function saveAvailability(entry: Omit<Availability, "id">, id?: string) {
