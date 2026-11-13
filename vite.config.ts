@@ -6,14 +6,13 @@ import path from "path";
 export default defineConfig(() => ({
   base: process.env.VITE_BASE_PATH || "/",
   server: {
-    host: "0.0.0.0",
-    port: 3000,
-    allowedHosts: true,
+    host: "::",
+    port: 8080,
   },
   plugins: [dyadComponentTagger(), react()],
   resolve: {
     alias: {
-      "@": path.resolve(import.meta.dirname, "./src"),
+      "@": path.resolve(__dirname, "./src"),
     },
   },
 }));
