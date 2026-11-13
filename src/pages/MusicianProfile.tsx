@@ -10,17 +10,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/contexts/AuthContext";
 import { AvailabilityManager } from "@/features/musicians/AvailabilityManager";
 import { MusicianFormDialog } from "@/features/musicians/MusicianFormDialog";
-import { listEvaluationsForMusician, type MusicianEvaluation } from "@/features/rehearsals/evaluations";
 import { getMusician, getMusicianCatalogs } from "@/features/musicians/service";
 import { supabase } from "@/integrations/supabase/client";
 import type { Instrument, MusicalRole, Musician } from "@/features/musicians/types";
 
 const statusTone: Record<string, string> = { ACTIVO: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400", INACTIVO: "bg-slate-500/10 text-slate-700 dark:text-slate-300", INVITADO: "bg-blue-500/10 text-blue-700 dark:text-blue-400", SUPLENTE: "bg-amber-500/10 text-amber-700 dark:text-amber-400", "PROFESIONAL DE APOYO": "bg-violet-500/10 text-violet-700 dark:text-violet-400" };
-const evalTone: Record<string, { label: string; badge: string; dot: string }> = {
-  VERDE: { label: "VERDE · Óptimo", badge: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400", dot: "bg-emerald-500" },
-  AMARILLO: { label: "AMARILLO · Por mejorar", badge: "bg-amber-500/15 text-amber-700 dark:text-amber-400", dot: "bg-amber-500" },
-  ROJO: { label: "ROJO · Crítico", badge: "bg-rose-500/15 text-rose-700 dark:text-rose-400", dot: "bg-rose-500" },
-};
 
 export default function MusicianProfile() {
   const { id } = useParams();
@@ -33,7 +27,6 @@ export default function MusicianProfile() {
   const [activityStats, setActivityStats] = useState({ events: 0, paidContributions: 0, pendingContributions: 0 });
   const [taskStats,setTaskStats]=useState({total:0,completed:0,pending:0,overdue:0,songs:0});
   const [taskObservations,setTaskObservations]=useState<string[]>([]);
-  const [evaluations, setEvaluations] = useState<MusicianEvaluation[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const canManage = hasPermission("musicians.manage");
@@ -42,8 +35,8 @@ export default function MusicianProfile() {
     if (!membership || !id) return;
     setLoading(true);
     try {
-      const [person, catalogs, attendanceResult, eventsResult, contributionsResult, taskResult, evalRows] = await Promise.all([getMusician(membership.organizationId, id), getMusicianCatalogs(membership.organizationId), supabase.from("rehearsal_attendance").select("status").eq("organization_id", membership.organizationId).eq("musician_id", id), supabase.from("event_musicians").select("id", { count: "exact" }).eq("organization_id", membership.organizationId).eq("musician_id", id), supabase.from("rehearsal_contributions").select("status").eq("organization_id", membership.organizationId).eq("musician_id", id), supabase.from("music_task_assignees").select("status,task:music_tasks(due_at,song_id,observations)").eq("organization_id",membership.organizationId).eq("musician_id",id), listEvaluationsForMusician(membership.organizationId, id)]);
-      setMusician(person); setInstruments(catalogs.instruments); setRoles(catalogs.roles); setEvaluations(evalRows);
+      const [person, catalogs, attendanceResult, eventsResult, contributionsResult, taskResult] = await Promise.all([getMusician(membership.organizationId, id), getMusicianCatalogs(membership.organizationId), supabase.from("rehearsal_attendance").select("status").eq("organization_id", membership.organizationId).eq("musician_id", id), supabase.from("event_musicians").select("id", { count: "exact" }).eq("organization_id", membership.organizationId).eq("musician_id", id), supabase.from("rehearsal_contributions").select("status").eq("organization_id", membership.organizationId).eq("musician_id", id), supabase.from("music_task_assignees").select("status,task:music_tasks(due_at,song_id,observations)").eq("organization_id",membership.organizationId).eq("musician_id",id)]);
+      setMusician(person); setInstruments(catalogs.instruments); setRoles(catalogs.roles);
       const attendance = attendanceResult.data ?? [];
       const contributions = contributionsResult.data ?? [];
       setAttendanceStats({ attended: attendance.filter((item) => item.status === "PRESENTE" || item.status === "TARDE").length, absences: attendance.filter((item) => item.status === "AUSENTE" || item.status === "JUSTIFICADO").length });
@@ -64,43 +57,10 @@ export default function MusicianProfile() {
 
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><Stat icon={CalendarDays} value={attendanceStats.attended.toString()} label="Ensayos asistidos" note="Incluye llegadas tarde" /><Stat icon={UserCheck} value={attendanceStats.absences.toString()} label="Ausencias" note="Incluye justificadas" /><Stat icon={CircleDollarSign} value={formatMoney(musician.event_rate)} label="Tarifa por evento" note="COP" /><Stat icon={Clock3} value={musician.experience_years?.toString() ?? "—"} label="Años de experiencia" note={musician.specialty ?? "Sin especialidad"} /></div>
 
-    <Tabs defaultValue="summary" className="space-y-5"><TabsList className="h-auto w-full justify-start overflow-x-auto rounded-2xl p-1.5 sm:w-fit"><TabsTrigger value="summary" className="rounded-xl">Resumen</TabsTrigger><TabsTrigger value="availability" className="rounded-xl">Disponibilidad</TabsTrigger><TabsTrigger value="activity" className="rounded-xl">Actividad e historial</TabsTrigger><TabsTrigger value="evaluations" className="rounded-xl">Evaluaciones ({evaluations.length})</TabsTrigger></TabsList>
+    <Tabs defaultValue="summary" className="space-y-5"><TabsList className="h-auto w-full justify-start overflow-x-auto rounded-2xl p-1.5 sm:w-fit"><TabsTrigger value="summary" className="rounded-xl">Resumen</TabsTrigger><TabsTrigger value="availability" className="rounded-xl">Disponibilidad</TabsTrigger><TabsTrigger value="activity" className="rounded-xl">Actividad e historial</TabsTrigger></TabsList>
       <TabsContent value="summary" className="grid gap-5 xl:grid-cols-[1.1fr_.9fr]"><Card className="rounded-[2rem] shadow-none"><CardContent className="p-5 sm:p-6"><h2 className="text-lg font-black">Perfil musical</h2><p className="mt-4 text-sm leading-relaxed text-muted-foreground">{musician.biography || "Sin biografía registrada."}</p><div className="mt-6 grid gap-4 sm:grid-cols-2"><Info label="Especialidad" value={musician.specialty || "Sin especificar"} /><Info label="Participación" value={musician.participation_type || "Sin especificar"} /><Info label="Ingreso" value={formatDate(musician.joined_at)} /><Info label="Tarifa de ensayo" value={formatMoney(musician.rehearsal_rate)} /></div>{musician.observations && <div className="mt-6 rounded-2xl bg-muted/50 p-4"><p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Observaciones</p><p className="mt-2 text-sm">{musician.observations}</p></div>}</CardContent></Card><div className="space-y-5"><Card className="rounded-[2rem] shadow-none"><CardContent className="p-5 sm:p-6"><div className="flex items-center gap-2"><Music2 className="size-5 text-primary" /><h2 className="text-lg font-black">Instrumentos</h2></div><div className="mt-4 space-y-2">{musician.musician_instruments.map((item) => <div key={item.id} className="flex items-center justify-between rounded-xl bg-muted/45 p-3"><span className="font-semibold">{item.instrument?.name}</span><div className="flex gap-2">{item.is_primary && <Star className="size-4 fill-primary text-primary" />}<Badge variant="outline" className="rounded-lg text-[9px]">{item.proficiency}</Badge></div></div>)}</div></CardContent></Card><Card className="rounded-[2rem] shadow-none"><CardContent className="p-5 sm:p-6"><div className="flex items-center gap-2"><ShieldCheck className="size-5 text-primary" /><h2 className="text-lg font-black">Roles</h2></div><div className="mt-4 flex flex-wrap gap-2">{musician.musician_roles.map((item) => <Badge key={item.id} variant={item.is_primary ? "default" : "secondary"} className="rounded-xl px-3 py-2">{item.musical_role?.name}{item.is_primary && " · Principal"}</Badge>)}</div></CardContent></Card>{canManage && <Card className="rounded-[2rem] shadow-none"><CardContent className="p-5 sm:p-6"><div className="flex items-center gap-2"><Phone className="size-5 text-primary" /><h2 className="text-lg font-black">Salud y emergencia</h2></div><div className="mt-4 grid gap-4 sm:grid-cols-2"><Info label="EPS" value={musician.eps || "Sin registrar"} /><Info label="Comuna" value={musician.cali_commune ? `Comuna ${musician.cali_commune}` : "Sin registrar"} /><Info label="Contacto" value={musician.emergency_contact_name || "Sin registrar"} /><Info label="Teléfono" value={musician.emergency_contact_phone || "Sin registrar"} /><div className="sm:col-span-2"><Info label="Dirección" value={musician.address || "Sin registrar"} /></div></div></CardContent></Card>}</div></TabsContent>
       <TabsContent value="availability"><AvailabilityManager organizationId={membership.organizationId} musicianId={musician.id} entries={musician.availability} canManage={canManage || musician.user_id === session?.user.id} onChanged={() => void load()} /></TabsContent>
       <TabsContent value="activity" className="space-y-5"><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5"><Stat icon={CheckCircle2} value={`${taskStats.total?Math.round(taskStats.completed/taskStats.total*100):0}%`} label="Cumplimiento" note={`${taskStats.completed}/${taskStats.total} tareas`} /><Stat icon={Clock3} value={taskStats.pending.toString()} label="Tareas pendientes" note={`${taskStats.overdue} vencidas`} /><Stat icon={Music2} value={taskStats.songs.toString()} label="Canciones trabajadas" note="Con tareas vinculadas" /><Stat icon={CalendarDays} value={attendanceStats.attended.toString()} label="Ensayos asistidos" note={`${attendanceStats.absences} ausencias`} /><Stat icon={UsersRound} value={activityStats.events.toString()} label="Eventos" note="Participaciones" /></div><Card className="rounded-[2rem] shadow-none"><CardContent className="grid gap-4 p-5 sm:grid-cols-2 sm:p-6"><ActivityPanel icon={CalendarDays} title="Ensayos y asistencia" detail={`${attendanceStats.attended + attendanceStats.absences} registros acumulados`} /><ActivityPanel icon={UsersRound} title="Eventos y presentaciones" detail={`${activityStats.events} participaciones registradas`} /><ActivityPanel icon={CircleDollarSign} title="Aportes confirmados" detail={`${activityStats.paidContributions} pagados · ${activityStats.pendingContributions} pendientes`} /><ActivityPanel icon={ShieldCheck} title="Perfil y disponibilidad" detail="Información operativa habilitada" /></CardContent></Card><Card className="rounded-[2rem] shadow-none"><CardContent className="p-5 sm:p-6"><h3 className="font-black">Últimas observaciones musicales</h3><div className="mt-4 space-y-2">{taskObservations.map((note,index)=><p key={`${note}-${index}`} className="rounded-xl bg-muted/50 p-3 text-sm">{note}</p>)}{!taskObservations.length&&<p className="text-sm text-muted-foreground">Aún no hay observaciones del Director Musical.</p>}</div></CardContent></Card></TabsContent>
-      <TabsContent value="evaluations">
-        <Card className="rounded-[2rem] shadow-none">
-          <CardContent className="p-5 sm:p-6">
-            <h2 className="text-lg font-black">Historial de evaluaciones (Semáforo)</h2>
-            <p className="mt-1 text-xs text-muted-foreground">Evaluaciones registradas por Dirección Musical en los ensayos.</p>
-            <div className="mt-5 space-y-3">
-              {evaluations.length ? evaluations.map((ev) => {
-                const tone = evalTone[ev.semaphore] ?? evalTone.VERDE;
-                return (
-                  <div key={ev.id} className="flex flex-col gap-3 rounded-2xl border p-4 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Badge className={`rounded-lg ${tone.badge}`}>
-                          <span className={`mr-1.5 inline-block size-2 rounded-full ${tone.dot}`} />
-                          {tone.label}
-                        </Badge>
-                        {ev.score !== null && <Badge variant="outline" className="rounded-lg font-black">{ev.score} / 100</Badge>}
-                      </div>
-                      <p className="mt-2 font-bold">{ev.rehearsal_name || "Ensayo"}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {ev.rehearsal_date ? formatDate(ev.rehearsal_date) : ""} · Evaluó: {ev.evaluator_name}
-                      </p>
-                      {ev.notes && <p className="mt-2 rounded-xl bg-muted/50 p-3 text-sm">{ev.notes}</p>}
-                    </div>
-                  </div>
-                );
-              }) : (
-                <p className="rounded-2xl bg-muted/40 p-6 text-center text-sm text-muted-foreground">Aún no hay evaluaciones registradas para este músico.</p>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      </TabsContent>
     </Tabs>
     <MusicianFormDialog open={editing} onOpenChange={setEditing} organizationId={membership.organizationId} musician={musician} instruments={instruments} roles={roles} onSaved={() => void load()} />
   </div>;

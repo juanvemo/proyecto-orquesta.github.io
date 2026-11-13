@@ -1,5 +1,5 @@
 export type ApprovalStatus = "PENDING" | "APPROVED" | "REJECTED" | "SUSPENDED";
-export type RoleCode = "ADMIN" | "DIRECTOR" | "DIRECTOR_MUSICAL" | "ADMINISTRATION" | "MUSICIAN" | "PRODUCTION_TECH" | "VIEWER";
+export type RoleCode = "ADMIN" | "DIRECTOR" | "DIRECTOR_MUSICAL" | "ADMINISTRATION" | "MUSICIAN" | "VIEWER";
 
 export interface AppUser {
   id: string;
@@ -9,7 +9,6 @@ export interface AppUser {
   lastName: string;
   avatarUrl?: string | null;
   profileComplete: boolean;
-  mustChangePassword?: boolean;
 }
 
 export interface OrganizationIdentity {

@@ -1,0 +1,105 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 270 33% 99%;
+    --foreground: 260 31% 13%;
+    --card: 0 0% 100%;
+    --card-foreground: 260 31% 13%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 260 31% 13%;
+    --primary: 255 90% 54%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 260 26% 95%;
+    --secondary-foreground: 260 31% 18%;
+    --muted: 260 24% 96%;
+    --muted-foreground: 258 11% 45%;
+    --accent: 254 72% 95%;
+    --accent-foreground: 255 74% 42%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 260 19% 89%;
+    --input: 260 19% 89%;
+    --ring: 255 90% 54%;
+    --radius: 1rem;
+    --sidebar-background: 260 31% 98%;
+    --sidebar-foreground: 260 25% 20%;
+    --sidebar-primary: 255 90% 54%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 255 62% 94%;
+    --sidebar-accent-foreground: 255 70% 38%;
+    --sidebar-border: 260 19% 89%;
+    --sidebar-ring: 255 90% 54%;
+  }
+
+  .dark {
+    --background: 258 30% 7%;
+    --foreground: 260 24% 96%;
+    --card: 258 25% 10%;
+    --card-foreground: 260 24% 96%;
+    --popover: 258 25% 10%;
+    --popover-foreground: 260 24% 96%;
+    --primary: 256 92% 68%;
+    --primary-foreground: 258 40% 10%;
+    --secondary: 258 20% 16%;
+    --secondary-foreground: 260 24% 96%;
+    --muted: 258 19% 15%;
+    --muted-foreground: 258 12% 66%;
+    --accent: 256 32% 20%;
+    --accent-foreground: 256 88% 78%;
+    --destructive: 0 63% 43%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 258 18% 20%;
+    --input: 258 18% 22%;
+    --ring: 256 92% 68%;
+    --sidebar-background: 258 29% 8%;
+    --sidebar-foreground: 260 18% 90%;
+    --sidebar-primary: 256 92% 68%;
+    --sidebar-primary-foreground: 258 40% 10%;
+    --sidebar-accent: 256 28% 18%;
+    --sidebar-accent-foreground: 256 88% 82%;
+    --sidebar-border: 258 18% 17%;
+    --sidebar-ring: 256 92% 68%;
+  }
+}
+
+@layer base {
+  * { @apply border-border; }
+  html { scroll-behavior: smooth; }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  ::selection { @apply bg-primary/20 text-foreground; }
+}
+
+@layer utilities {
+  .font-display { font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+}
+
+.auth-orquesta input { min-height: 46px !important; }
+.auth-orquesta button { min-height: 46px !important; }
+.auth-orquesta a { color: hsl(var(--primary)) !important; }
+
+@media print {
+  @page { size: A4; margin: 12mm; }
+  body * { visibility: hidden; }
+  .rider-print-root, .rider-print-root * { visibility: visible; }
+  .rider-print-root {
+    position: absolute !important;
+    inset: 0 auto auto 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+    max-height: none !important;
+    overflow: visible !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    background: white !important;
+    color: #1f2937 !important;
+  }
+  .rider-document { padding: 0 !important; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  .rider-document section, .rider-document table { break-inside: avoid; }
+  .rider-document tr { break-inside: avoid; }
+}

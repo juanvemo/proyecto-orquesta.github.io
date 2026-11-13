@@ -37,7 +37,7 @@ export interface MusicTask {
   rehearsal: { id: string; name: string; rehearsal_date: string; start_time: string; location: string } | null;
   event: { id: string; name: string; event_date: string } | null;
   music_task_assignees: TaskAssignee[];
-  music_task_comments: Array<{ id: string; author_user_id: string; author_name?: string; comment: string; created_at: string }>;
+  music_task_comments: Array<{ id: string; author_user_id: string; comment: string; created_at: string }>;
   music_task_history: Array<{ id:string; action:string; previous_value:Record<string,unknown>|null; new_value:Record<string,unknown>|null; actor_user_id:string|null; created_at:string }>;
 }
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, CalendarClock, CheckCircle2, Clock3, Edit3, Mail, MapPin, Music2, Send, Smartphone, UserCheck, UserRoundX } from "lucide-react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { ArrowLeft, CalendarClock, CheckCircle2, Clock3, Edit3, MapPin, Music2, Send, Smartphone, UserCheck, UserRoundX, UsersRound } from "lucide-react";
+import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,9 +14,7 @@ import { RehearsalPlanningPanel } from "@/features/music-direction/RehearsalPlan
 import { loadRepertoire } from "@/features/repertoire/service";
 import type { Song } from "@/features/repertoire/types";
 import { RehearsalCostPanel } from "@/features/rehearsals/RehearsalCostPanel";
-import { RehearsalEvaluationPanel } from "@/features/rehearsals/RehearsalEvaluationPanel";
 import { RehearsalFormDialog } from "@/features/rehearsals/RehearsalFormDialog";
-import { RehearsalGmailConfirmDialog } from "@/features/rehearsals/RehearsalGmailConfirmDialog";
 import { RehearsalSongsPanel } from "@/features/rehearsals/RehearsalSongsPanel";
 import { getRehearsal, sendRehearsalInvitation, updateInvitation, updateRehearsalStatus, upsertAttendance } from "@/features/rehearsals/service";
 import type { AttendanceStatus, InvitationStatus, Rehearsal, RehearsalInvitation } from "@/features/rehearsals/types";
@@ -25,426 +23,65 @@ import type { Musician } from "@/features/musicians/types";
 import { supabase } from "@/integrations/supabase/client";
 import { getAppRouteUrl } from "@/lib/authRedirect";
 
-const responseTone: Record<InvitationStatus, string> = {
-  PENDIENTE: "bg-amber-500/10 text-amber-700 dark:text-amber-400",
-  CONFIRMADO: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
-  "NO PUEDO ASISTIR": "bg-rose-500/10 text-rose-700 dark:text-rose-400",
-};
-const statusTone: Record<string, string> = {
-  PLANIFICADO: "bg-blue-500/10 text-blue-700 dark:text-blue-400",
-  CONFIRMADO: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
-  "EN CURSO": "bg-violet-500/10 text-violet-700 dark:text-violet-400",
-  FINALIZADO: "bg-slate-500/10 text-slate-700 dark:text-slate-300",
-  CANCELADO: "bg-rose-500/10 text-rose-700 dark:text-rose-400",
-};
+const responseTone: Record<InvitationStatus, string> = { PENDIENTE: "bg-amber-500/10 text-amber-700 dark:text-amber-400", CONFIRMADO: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400", "NO PUEDO ASISTIR": "bg-rose-500/10 text-rose-700 dark:text-rose-400" };
+const statusTone: Record<string, string> = { PLANIFICADO: "bg-blue-500/10 text-blue-700 dark:text-blue-400", CONFIRMADO: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400", "EN CURSO": "bg-violet-500/10 text-violet-700 dark:text-violet-400", FINALIZADO: "bg-slate-500/10 text-slate-700 dark:text-slate-300", CANCELADO: "bg-rose-500/10 text-rose-700 dark:text-rose-400" };
 
 export default function RehearsalControl() {
   const { id } = useParams();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const { membership, organization, session, user, hasPermission } = useAuth();
+  const { membership, session, user, hasPermission } = useAuth();
   const navigate = useNavigate();
   const [rehearsal, setRehearsal] = useState<Rehearsal | null>(null);
   const [musicians, setMusicians] = useState<Musician[]>([]);
   const [songs, setSongs] = useState<Song[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
-  const [gmailOpen, setGmailOpen] = useState(false);
-
   const canManage = hasPermission("rehearsals.manage");
   const canAttend = hasPermission("attendance.manage");
   const canManageTasks = hasPermission("tasks.manage");
-  const canManageCosts = hasPermission("rehearsal_costs.manage") || membership?.roleCode === "ADMIN";
-  const canEvaluate = hasPermission("evaluations.manage") || membership?.roleCode === "DIRECTOR_MUSICAL" || membership?.roleCode === "DIRECTOR" || membership?.roleCode === "ADMIN";
-  const isDirectorMusical = membership?.roleCode === "DIRECTOR_MUSICAL";
-
-  const load = useCallback(async () => {
-    if (!membership || !id) return;
-    setLoading(true);
-    try {
-      const [row, people, repertoire] = await Promise.all([
-        getRehearsal(membership.organizationId, id),
-        canManage || canManageCosts ? listMusicians(membership.organizationId) : Promise.resolve([]),
-        loadRepertoire(membership.organizationId),
-      ]);
-      setRehearsal(row);
-      setMusicians(people);
-      setSongs(repertoire.songs);
-    } catch {
-      toast.error("No fue posible cargar el ensayo");
-      navigate("/ensayos", { replace: true });
-    } finally {
-      setLoading(false);
-    }
-  }, [membership, id, canManage, canManageCosts, navigate]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
+  const canManageCosts = hasPermission("rehearsal_costs.manage");
+  const load = useCallback(async () => { if (!membership || !id) return; setLoading(true); try { const [row, people, repertoire] = await Promise.all([getRehearsal(membership.organizationId, id), canManage ? listMusicians(membership.organizationId) : Promise.resolve([]), loadRepertoire(membership.organizationId)]); setRehearsal(row); setMusicians(people); setSongs(repertoire.songs); } catch { toast.error("No fue posible cargar el ensayo"); navigate("/ensayos", { replace: true }); } finally { setLoading(false); } }, [membership, id, canManage, navigate]);
+  useEffect(() => { void load(); }, [load]);
   useEffect(() => {
     if (!id) return;
-    const channel = supabase
-      .channel(`rehearsal-responses-${id}`)
-      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "rehearsal_musicians", filter: `rehearsal_id=eq.${id}` }, () => void load())
-      .subscribe();
-    return () => {
-      void supabase.removeChannel(channel);
-    };
+    const channel = supabase.channel(`rehearsal-responses-${id}`).on("postgres_changes", { event: "UPDATE", schema: "public", table: "rehearsal_musicians", filter: `rehearsal_id=eq.${id}` }, () => void load()).subscribe();
+    return () => { void supabase.removeChannel(channel); };
   }, [id, load]);
-
-  useEffect(() => {
-    if (!loading && rehearsal && canManage && searchParams.get("enviarGmail") === "1") {
-      setGmailOpen(true);
-      const next = new URLSearchParams(searchParams);
-      next.delete("enviarGmail");
-      setSearchParams(next, { replace: true });
-    }
-  }, [loading, rehearsal, canManage, searchParams, setSearchParams]);
-
   if (loading) return <div className="space-y-4"><Skeleton className="h-44 rounded-[2rem]" /><Skeleton className="h-96 rounded-[2rem]" /></div>;
   if (!rehearsal || !membership || !session) return null;
-
   const confirmed = rehearsal.rehearsal_musicians.filter((item) => item.response_status === "CONFIRMADO").length;
-  const pending = rehearsal.rehearsal_musicians.filter((item) => item.response_status === "PENDIENTE" && item.responded_at !== null).length;
-  const noResponse = rehearsal.rehearsal_musicians.filter((item) => item.response_status === "PENDIENTE" && item.responded_at === null).length;
+  const pending = rehearsal.rehearsal_musicians.filter((item) => item.response_status === "PENDIENTE").length;
   const unavailable = rehearsal.rehearsal_musicians.filter((item) => item.response_status === "NO PUEDO ASISTIR").length;
   const ownInvitation = rehearsal.rehearsal_musicians.find((item) => item.musician?.user_id === session.user.id);
   const attendanceInvitations = canAttend ? rehearsal.rehearsal_musicians : ownInvitation ? [ownInvitation] : [];
 
-  const respond = async (invitation: RehearsalInvitation, status: InvitationStatus) => {
-    try {
-      await updateInvitation(invitation.id, status);
-      toast.success("Respuesta registrada");
-      void load();
-    } catch {
-      toast.error("No se pudo registrar la respuesta");
-    }
-  };
-
-  const changeStatus = async (status: Rehearsal["status"]) => {
-    try {
-      await updateRehearsalStatus(rehearsal.id, status);
-      toast.success("Estado actualizado");
-      void load();
-    } catch {
-      toast.error("No se pudo cambiar el estado");
-    }
-  };
-
+  const respond = async (invitation: RehearsalInvitation, status: InvitationStatus) => { try { await updateInvitation(invitation.id, status); toast.success("Respuesta registrada"); void load(); } catch { toast.error("No se pudo registrar la respuesta"); } };
+  const changeStatus = async (status: Rehearsal["status"]) => { try { await updateRehearsalStatus(rehearsal.id, status); toast.success("Estado actualizado"); void load(); } catch { toast.error("No se pudo cambiar el estado"); } };
   const invitationLink = (invitation: RehearsalInvitation) => getAppRouteUrl(`/convocatoria/${invitation.public_token}`);
   const openWhatsApp = (invitation: RehearsalInvitation) => {
     const phone = normalizePhone(invitation.musician?.whatsapp || invitation.musician?.phone || "");
-    if (!phone) {
-      toast.error("El músico no tiene un WhatsApp válido registrado");
-      return;
-    }
+    if (!phone) { toast.error("El músico no tiene un WhatsApp válido registrado"); return; }
     const message = `Hola ${invitation.musician?.first_name ?? ""}, tienes una convocatoria para ${rehearsal.name} el ${formatDate(rehearsal.rehearsal_date)}. Confirma tu asistencia aquí: ${invitationLink(invitation)}`;
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, "_blank", "noopener,noreferrer");
   };
   const sendByApi = async (invitation: RehearsalInvitation) => {
-    try {
-      await sendRehearsalInvitation(invitation.id);
-      toast.success("Convocatoria enviada al sistema", {
-        description: "WhatsApp se entrega si el músico autorizó el canal y la API está configurada.",
-      });
-    } catch (error) {
-      toast.error("No se pudo enviar la convocatoria", { description: error instanceof Error ? error.message : undefined });
-    }
+    try { await sendRehearsalInvitation(invitation.id); toast.success("Convocatoria enviada al sistema", { description: "WhatsApp se entrega si el músico autorizó el canal y la API está configurada." }); }
+    catch (error) { toast.error("No se pudo enviar la convocatoria", { description: error instanceof Error ? error.message : undefined }); }
   };
 
-  return (
-    <div className="space-y-6 animate-in fade-in duration-300">
-      <div className="flex items-center justify-between">
-        <Button variant="ghost" className="rounded-xl" onClick={() => navigate("/ensayos")}>
-          <ArrowLeft className="mr-2 size-4" /> Ensayos
-        </Button>
-        {canManage && (
-          <Button onClick={() => setEditing(true)} className="rounded-xl font-bold">
-            <Edit3 className="mr-2 size-4" /> Editar ensayo
-          </Button>
-        )}
-      </div>
-
-      <section className="overflow-hidden rounded-[2rem] bg-[#201537] text-white">
-        <div className="p-6 sm:p-8">
-          <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
-            <div>
-              <Badge className="rounded-lg border-white/15 bg-white/10 text-white">{rehearsal.status}</Badge>
-              <h1 className="mt-4 text-3xl font-black tracking-tight sm:text-4xl">{rehearsal.name}</h1>
-              <p className="mt-3 max-w-2xl text-sm text-white/70">{rehearsal.objective}</p>
-              <div className="mt-5 flex flex-wrap gap-x-5 gap-y-2 text-sm text-white/80">
-                <span className="flex items-center gap-2"><CalendarClock className="size-4 text-violet-300" /> {formatDate(rehearsal.rehearsal_date)}</span>
-                <span className="flex items-center gap-2"><Clock3 className="size-4 text-violet-300" /> {rehearsal.start_time.slice(0, 5)} — {rehearsal.end_time.slice(0, 5)}</span>
-                <span className="flex items-center gap-2"><MapPin className="size-4 text-violet-300" /> {rehearsal.location}</span>
-              </div>
-            </div>
-            <div className="grid grid-cols-4 gap-2 rounded-2xl border border-white/10 bg-white/10 p-3 text-center">
-              <Counter value={confirmed} label="Confirmados" />
-              <Counter value={pending} label="Pendientes" />
-              <Counter value={noResponse} label="Sin resp." />
-              <Counter value={unavailable} label="No pueden" />
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {ownInvitation && !canManage && !isDirectorMusical && (
-        <Card className="rounded-[2rem] border-primary/20 bg-primary/5 shadow-none">
-          <CardContent className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="font-black">Confirma tu asistencia</p>
-              <p className="text-sm text-muted-foreground">Tu respuesta actual: {ownInvitation.response_status}</p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button variant="outline" className="rounded-xl" onClick={() => void respond(ownInvitation, "NO PUEDO ASISTIR")}>
-                <UserRoundX className="mr-2 size-4" /> No puedo
-              </Button>
-              <Button className="rounded-xl" onClick={() => void respond(ownInvitation, "CONFIRMADO")}>
-                <UserCheck className="mr-2 size-4" /> Confirmar
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      <Tabs defaultValue="summary" className="space-y-5">
-        <TabsList className="h-auto w-full justify-start overflow-x-auto rounded-2xl p-1.5 sm:w-fit">
-          <TabsTrigger value="summary" className="rounded-xl">Resumen</TabsTrigger>
-          <TabsTrigger value="songs" className="rounded-xl">Repertorio</TabsTrigger>
-          <TabsTrigger value="calls" className="rounded-xl">Convocatoria</TabsTrigger>
-          <TabsTrigger value="attendance" className="rounded-xl">Asistencia</TabsTrigger>
-          <TabsTrigger value="tasks" className="rounded-xl">Plan y tareas</TabsTrigger>
-          {(canEvaluate || isDirectorMusical) && <TabsTrigger value="evaluation" className="rounded-xl">Evaluación (Semáforo)</TabsTrigger>}
-          {canManageCosts && <TabsTrigger value="costs" className="rounded-xl">Aportes</TabsTrigger>}
-        </TabsList>
-
-        <TabsContent value="summary" className="grid gap-5 lg:grid-cols-[1fr_320px]">
-          <Card className="rounded-[2rem] shadow-none">
-            <CardContent className="p-5 sm:p-6">
-              <h2 className="text-lg font-black">Información del ensayo</h2>
-              <div className="mt-5 grid gap-5 sm:grid-cols-2">
-                <Info label="Lugar" value={rehearsal.location} />
-                <Info label="Dirección" value={rehearsal.address || "Sin registrar"} />
-                <Info label="Responsable" value={rehearsal.responsible ? `${rehearsal.responsible.first_name} ${rehearsal.responsible.last_name}` : "Sin asignar"} />
-                <Info label="Músicos convocados" value={`${rehearsal.rehearsal_musicians.length}`} />
-              </div>
-              {rehearsal.observations && (
-                <div className="mt-6 rounded-2xl bg-muted/50 p-4">
-                  <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Observaciones</p>
-                  <p className="mt-2 text-sm">{rehearsal.observations}</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card className="rounded-[2rem] shadow-none">
-            <CardContent className="p-5 sm:p-6">
-              <h2 className="font-black">Control de estado</h2>
-              {canManage ? (
-                <Select value={rehearsal.status} onValueChange={(value: Rehearsal["status"]) => void changeStatus(value)}>
-                  <SelectTrigger className="mt-4 h-11 rounded-xl"><SelectValue /></SelectTrigger>
-                  <SelectContent>{Object.keys(statusTone).map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent>
-                </Select>
-              ) : (
-                <Badge className={`mt-4 rounded-lg ${statusTone[rehearsal.status]}`}>{rehearsal.status}</Badge>
-              )}
-              <div className="mt-5 rounded-2xl bg-primary/5 p-4">
-                <Music2 className="size-5 text-primary" />
-                <p className="mt-2 text-sm font-bold">Repertorio y partituras</p>
-                <p className="mt-1 text-xs text-muted-foreground">Consulta letra, tempo, tonalidad y partituras de cada canción desde la pestaña Repertorio.</p>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="songs">
-          <RehearsalSongsPanel organizationId={membership.organizationId} rehearsalId={rehearsal.id} songs={songs} canManage={canManage} />
-        </TabsContent>
-
-        <TabsContent value="calls">
-          <Card className="rounded-[2rem] shadow-none">
-            <CardContent className="p-0">
-              <div className="flex flex-col justify-between gap-3 border-b p-5 sm:flex-row sm:items-center sm:p-6">
-                <div>
-                  <h2 className="text-lg font-black">Músicos convocados y confirmaciones</h2>
-                  <p className="text-sm text-muted-foreground">
-                    {confirmed} confirmados · {pending} pendientes · {noResponse} no respondieron · {unavailable} no disponibles
-                  </p>
-                </div>
-                {canManage && rehearsal.rehearsal_musicians.length > 0 && (
-                  <Button type="button" onClick={() => setGmailOpen(true)} className="rounded-xl font-bold">
-                    <Mail className="mr-2 size-4" /> Enviar programación por Gmail
-                  </Button>
-                )}
-              </div>
-              <div className="divide-y">
-                {rehearsal.rehearsal_musicians.map((invitation) => {
-                  const confirmationLabel =
-                    invitation.response_status === "PENDIENTE" && !invitation.responded_at
-                      ? "NO RESPONDIÓ"
-                      : invitation.response_status;
-                  return (
-                    <div key={invitation.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:px-6">
-                      <Avatar musician={invitation.musician} />
-                      <div className="min-w-0 flex-1">
-                        <p className="font-bold">{invitation.musician?.first_name} {invitation.musician?.last_name}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {invitation.musician?.specialty || "Músico"} · Disponibilidad general:{" "}
-                          <strong>{invitation.musician?.current_availability_status ?? "SIN REGISTRO"}</strong>
-                        </p>
-                      </div>
-                      <Badge className={`w-fit rounded-lg ${responseTone[invitation.response_status]}`}>{confirmationLabel}</Badge>
-                      {canManage && (
-                        <>
-                          <Select value={invitation.response_status} onValueChange={(value: InvitationStatus) => void respond(invitation, value)}>
-                            <SelectTrigger className="h-9 w-full rounded-xl sm:w-48"><SelectValue /></SelectTrigger>
-                            <SelectContent>{Object.keys(responseTone).map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent>
-                          </Select>
-                          <div className="flex gap-2">
-                            <Button size="sm" variant="outline" onClick={() => openWhatsApp(invitation)} className="rounded-xl text-emerald-700" title="Abrir WhatsApp con el enlace">
-                              <Smartphone className="mr-1 size-4" />WhatsApp
-                            </Button>
-                            <Button size="sm" onClick={() => void sendByApi(invitation)} className="rounded-xl" title="Enviar mediante la API configurada">
-                              <Send className="mr-1 size-4" />API
-                            </Button>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="attendance">
-          <Card className="rounded-[2rem] shadow-none">
-            <CardContent className="p-0">
-              <div className="border-b p-5 sm:p-6">
-                <h2 className="text-lg font-black">Control de asistencia</h2>
-                <p className="text-sm text-muted-foreground">Registra estado y horarios reales de participación.</p>
-              </div>
-              <div className="divide-y">
-                {attendanceInvitations.map((invitation) => (
-                  <AttendanceRow key={invitation.id} invitation={invitation} rehearsal={rehearsal} userId={session.user.id} canManage={canAttend} onSaved={load} />
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="tasks">
-          <RehearsalPlanningPanel organizationId={membership.organizationId} rehearsalId={rehearsal.id} songs={songs} canManage={canManageTasks || canManage} userId={session.user.id} />
-        </TabsContent>
-
-        {(canEvaluate || isDirectorMusical) && (
-          <TabsContent value="evaluation">
-            <RehearsalEvaluationPanel
-              organizationId={membership.organizationId}
-              rehearsalId={rehearsal.id}
-              rehearsalName={rehearsal.name}
-              rehearsalDate={rehearsal.rehearsal_date}
-              invitations={rehearsal.rehearsal_musicians}
-              userId={session.user.id}
-              evaluatorName={`${user?.firstName ?? "Director"} ${user?.lastName ?? ""}`.trim()}
-              canEvaluate={canEvaluate}
-            />
-          </TabsContent>
-        )}
-
-        {canManageCosts && (
-          <TabsContent value="costs">
-            <RehearsalCostPanel
-              organizationId={membership.organizationId}
-              rehearsalId={rehearsal.id}
-              invitations={rehearsal.rehearsal_musicians}
-              musicians={musicians}
-              userId={session.user.id}
-              userName={`${user?.firstName ?? "Director"} ${user?.lastName ?? ""}`.trim()}
-              canManage
-            />
-          </TabsContent>
-        )}
-      </Tabs>
-
-      {canManage && (
-        <>
-          <RehearsalFormDialog
-            open={editing}
-            onOpenChange={setEditing}
-            organizationId={membership.organizationId}
-            userId={session.user.id}
-            rehearsal={rehearsal}
-            musicians={musicians}
-            onSaved={(_savedId, promptGmail) => {
-              void load();
-              if (promptGmail) setGmailOpen(true);
-            }}
-          />
-          <RehearsalGmailConfirmDialog
-            open={gmailOpen}
-            onOpenChange={setGmailOpen}
-            rehearsal={rehearsal}
-            organizationName={organization?.name ?? "Proyecto Orquesta"}
-          />
-        </>
-      )}
-    </div>
-  );
+  return <div className="space-y-6 animate-in fade-in duration-300"><div className="flex items-center justify-between"><Button variant="ghost" className="rounded-xl" onClick={() => navigate("/ensayos")}><ArrowLeft className="mr-2 size-4" /> Ensayos</Button>{canManage && <Button onClick={() => setEditing(true)} className="rounded-xl font-bold"><Edit3 className="mr-2 size-4" /> Editar ensayo</Button>}</div><section className="overflow-hidden rounded-[2rem] bg-[#201537] text-white"><div className="p-6 sm:p-8"><div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-end"><div><Badge className="rounded-lg border-white/15 bg-white/10 text-white">{rehearsal.status}</Badge><h1 className="mt-4 text-3xl font-black tracking-tight sm:text-4xl">{rehearsal.name}</h1><p className="mt-3 max-w-2xl text-sm text-white/70">{rehearsal.objective}</p><div className="mt-5 flex flex-wrap gap-x-5 gap-y-2 text-sm text-white/80"><span className="flex items-center gap-2"><CalendarClock className="size-4 text-violet-300" /> {formatDate(rehearsal.rehearsal_date)}</span><span className="flex items-center gap-2"><Clock3 className="size-4 text-violet-300" /> {rehearsal.start_time.slice(0,5)} — {rehearsal.end_time.slice(0,5)}</span><span className="flex items-center gap-2"><MapPin className="size-4 text-violet-300" /> {rehearsal.location}</span></div></div><div className="grid grid-cols-3 gap-2 rounded-2xl border border-white/10 bg-white/10 p-3 text-center"><Counter value={confirmed} label="Sí" /><Counter value={pending} label="Pendientes" /><Counter value={unavailable} label="No pueden" /></div></div></div></section>
+    {ownInvitation && !canManage && <Card className="rounded-[2rem] border-primary/20 bg-primary/5 shadow-none"><CardContent className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-black">Confirma tu asistencia</p><p className="text-sm text-muted-foreground">Tu respuesta actual: {ownInvitation.response_status}</p></div><div className="flex gap-2"><Button variant="outline" className="rounded-xl" onClick={() => void respond(ownInvitation, "NO PUEDO ASISTIR")}><UserRoundX className="mr-2 size-4" /> No puedo</Button><Button className="rounded-xl" onClick={() => void respond(ownInvitation, "CONFIRMADO")}><UserCheck className="mr-2 size-4" /> Confirmar</Button></div></CardContent></Card>}
+    <Tabs defaultValue="summary" className="space-y-5"><TabsList className="h-auto w-full justify-start overflow-x-auto rounded-2xl p-1.5 sm:w-fit"><TabsTrigger value="summary" className="rounded-xl">Resumen</TabsTrigger><TabsTrigger value="songs" className="rounded-xl">Repertorio</TabsTrigger><TabsTrigger value="calls" className="rounded-xl">Convocatoria</TabsTrigger><TabsTrigger value="attendance" className="rounded-xl">Asistencia</TabsTrigger><TabsTrigger value="tasks" className="rounded-xl">Plan y tareas</TabsTrigger>{canManageCosts&&<TabsTrigger value="costs" className="rounded-xl">Aportes</TabsTrigger>}</TabsList><TabsContent value="summary" className="grid gap-5 lg:grid-cols-[1fr_320px]"><Card className="rounded-[2rem] shadow-none"><CardContent className="p-5 sm:p-6"><h2 className="text-lg font-black">Información del ensayo</h2><div className="mt-5 grid gap-5 sm:grid-cols-2"><Info label="Lugar" value={rehearsal.location} /><Info label="Dirección" value={rehearsal.address || "Sin registrar"} /><Info label="Responsable" value={rehearsal.responsible ? `${rehearsal.responsible.first_name} ${rehearsal.responsible.last_name}` : "Sin asignar"} /><Info label="Músicos convocados" value={`${rehearsal.rehearsal_musicians.length}`} /></div>{rehearsal.observations && <div className="mt-6 rounded-2xl bg-muted/50 p-4"><p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Observaciones</p><p className="mt-2 text-sm">{rehearsal.observations}</p></div>}</CardContent></Card><Card className="rounded-[2rem] shadow-none"><CardContent className="p-5 sm:p-6"><h2 className="font-black">Control de estado</h2>{canManage ? <Select value={rehearsal.status} onValueChange={(value: Rehearsal["status"]) => void changeStatus(value)}><SelectTrigger className="mt-4 h-11 rounded-xl"><SelectValue /></SelectTrigger><SelectContent>{Object.keys(statusTone).map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select> : <Badge className={`mt-4 rounded-lg ${statusTone[rehearsal.status]}`}>{rehearsal.status}</Badge>}<div className="mt-5 rounded-2xl bg-primary/5 p-4"><Music2 className="size-5 text-primary" /><p className="mt-2 text-sm font-bold">Repertorio del ensayo</p><p className="mt-1 text-xs text-muted-foreground">Consulta y actualiza las canciones trabajadas desde la pestaña Repertorio.</p></div></CardContent></Card></TabsContent>
+      <TabsContent value="songs"><RehearsalSongsPanel organizationId={membership.organizationId} rehearsalId={rehearsal.id} songs={songs} canManage={canManage} /></TabsContent>
+      <TabsContent value="calls"><Card className="rounded-[2rem] shadow-none"><CardContent className="p-0"><div className="border-b p-5 sm:p-6"><h2 className="text-lg font-black">Músicos convocados</h2><p className="text-sm text-muted-foreground">{confirmed} confirmados / {pending} pendientes / {unavailable} no disponibles</p></div><div className="divide-y">{rehearsal.rehearsal_musicians.map((invitation) => <div key={invitation.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:px-6"><Avatar musician={invitation.musician} /><div className="min-w-0 flex-1"><p className="font-bold">{invitation.musician?.first_name} {invitation.musician?.last_name}</p><p className="text-xs text-muted-foreground">{invitation.musician?.specialty || "Músico"} · Disponibilidad: <strong>{invitation.musician?.current_availability_status ?? "NO REGISTRADA"}</strong></p></div><Badge className={`w-fit rounded-lg ${responseTone[invitation.response_status]}`}>{invitation.response_status}</Badge>{canManage && <><Select value={invitation.response_status} onValueChange={(value: InvitationStatus) => void respond(invitation, value)}><SelectTrigger className="h-9 w-full rounded-xl sm:w-48"><SelectValue /></SelectTrigger><SelectContent>{Object.keys(responseTone).map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select><div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => openWhatsApp(invitation)} className="rounded-xl text-emerald-700" title="Abrir WhatsApp con el enlace"><Smartphone className="mr-1 size-4" />WhatsApp</Button><Button size="sm" onClick={() => void sendByApi(invitation)} className="rounded-xl" title="Enviar mediante la API configurada"><Send className="mr-1 size-4" />API</Button></div></>}</div>)}</div></CardContent></Card></TabsContent>
+      <TabsContent value="attendance"><Card className="rounded-[2rem] shadow-none"><CardContent className="p-0"><div className="border-b p-5 sm:p-6"><h2 className="text-lg font-black">Control de asistencia</h2><p className="text-sm text-muted-foreground">Registra estado y horarios reales de participación.</p></div><div className="divide-y">{attendanceInvitations.map((invitation) => <AttendanceRow key={invitation.id} invitation={invitation} rehearsal={rehearsal} userId={session.user.id} canManage={canAttend} onSaved={load} />)}</div></CardContent></Card></TabsContent>
+      <TabsContent value="tasks"><RehearsalPlanningPanel organizationId={membership.organizationId} rehearsalId={rehearsal.id} songs={songs} canManage={canManageTasks||canManage} userId={session.user.id}/></TabsContent>
+      {canManageCosts&&<TabsContent value="costs"><RehearsalCostPanel organizationId={membership.organizationId} rehearsalId={rehearsal.id} invitations={rehearsal.rehearsal_musicians} userId={session.user.id} userName={`${user?.firstName ?? "Director"} ${user?.lastName ?? ""}`.trim()} canManage /></TabsContent>}
+    </Tabs>{canManage && <RehearsalFormDialog open={editing} onOpenChange={setEditing} organizationId={membership.organizationId} userId={session.user.id} rehearsal={rehearsal} musicians={musicians} onSaved={() => void load()} />}</div>;
 }
 
-function AttendanceRow({ invitation, rehearsal, userId, canManage, onSaved }: { invitation: RehearsalInvitation; rehearsal: Rehearsal; userId: string; canManage: boolean; onSaved: () => void }) {
-  const existing = rehearsal.rehearsal_attendance.find((item) => item.musician_id === invitation.musician_id);
-  const [status, setStatus] = useState<AttendanceStatus>(existing?.status ?? "PRESENTE");
-  const [arrival, setArrival] = useState(existing?.arrival_time?.slice(0, 5) ?? rehearsal.start_time.slice(0, 5));
-  const [departure, setDeparture] = useState(existing?.departure_time?.slice(0, 5) ?? rehearsal.end_time.slice(0, 5));
-  const save = async () => {
-    try {
-      await upsertAttendance(rehearsal.organization_id, rehearsal.id, invitation.musician_id, status, userId, arrival, departure);
-      toast.success("Asistencia guardada");
-      onSaved();
-    } catch (error) {
-      toast.error("No se pudo guardar la asistencia", { description: error instanceof Error ? error.message : undefined });
-    }
-  };
-  return (
-    <div className="grid gap-3 p-4 sm:grid-cols-[1fr_180px_120px_120px_auto] sm:items-center sm:px-6">
-      <div className="flex items-center gap-3">
-        <Avatar musician={invitation.musician} />
-        <div>
-          <p className="font-bold">{invitation.musician?.first_name} {invitation.musician?.last_name}</p>
-          <p className="text-xs text-muted-foreground">{existing ? "Registro guardado" : "Sin registrar"}</p>
-        </div>
-      </div>
-      <Select value={status} disabled={!canManage} onValueChange={(value: AttendanceStatus) => setStatus(value)}>
-        <SelectTrigger className="h-9 rounded-xl"><SelectValue /></SelectTrigger>
-        <SelectContent>{["PRESENTE", "AUSENTE", "JUSTIFICADO", "TARDE"].map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent>
-      </Select>
-      <Input type="time" value={arrival} disabled={!canManage || status === "AUSENTE" || status === "JUSTIFICADO"} onChange={(event) => setArrival(event.target.value)} className="h-9 rounded-xl" />
-      <Input type="time" value={departure} disabled={!canManage || status === "AUSENTE" || status === "JUSTIFICADO"} onChange={(event) => setDeparture(event.target.value)} className="h-9 rounded-xl" />
-      {canManage && <Button size="sm" variant={existing ? "outline" : "default"} className="rounded-xl" onClick={() => void save()}><CheckCircle2 className="mr-1 size-4" /> Guardar</Button>}
-    </div>
-  );
-}
-
-function Avatar({ musician }: { musician: Musician | null }) {
-  return (
-    <span className="grid size-10 shrink-0 place-items-center overflow-hidden rounded-xl bg-primary/10 text-xs font-black text-primary">
-      {musician?.photo_url ? <img src={musician.photo_url} alt="" className="h-full w-full object-cover" /> : `${musician?.first_name?.[0] ?? "M"}${musician?.last_name?.[0] ?? ""}`}
-    </span>
-  );
-}
-function Counter({ value, label }: { value: number; label: string }) {
-  return <div className="px-2"><p className="text-xl font-black sm:text-2xl">{value}</p><p className="text-[10px] text-white/65">{label}</p></div>;
-}
-function Info({ label, value }: { label: string; value: string }) {
-  return <div><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 font-bold">{value}</p></div>;
-}
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat("es-CO", { weekday: "long", day: "numeric", month: "long", year: "numeric" }).format(new Date(`${value}T12:00:00`));
-}
-function normalizePhone(value: string) {
-  const digits = value.replace(/\D/g, "");
-  return digits.length === 10 && digits.startsWith("3") ? `57${digits}` : digits.length >= 11 ? digits : "";
-}
+function AttendanceRow({ invitation, rehearsal, userId, canManage, onSaved }: { invitation: RehearsalInvitation; rehearsal: Rehearsal; userId: string; canManage: boolean; onSaved: () => void }) { const existing = rehearsal.rehearsal_attendance.find((item) => item.musician_id === invitation.musician_id); const [status, setStatus] = useState<AttendanceStatus>(existing?.status ?? "PRESENTE"); const [arrival, setArrival] = useState(existing?.arrival_time?.slice(0,5) ?? rehearsal.start_time.slice(0,5)); const [departure, setDeparture] = useState(existing?.departure_time?.slice(0,5) ?? rehearsal.end_time.slice(0,5)); const save = async () => { try { await upsertAttendance(rehearsal.organization_id, rehearsal.id, invitation.musician_id, status, userId, arrival, departure); toast.success("Asistencia guardada"); onSaved(); } catch (error) { toast.error("No se pudo guardar la asistencia", { description: error instanceof Error ? error.message : undefined }); } }; return <div className="grid gap-3 p-4 sm:grid-cols-[1fr_180px_120px_120px_auto] sm:items-center sm:px-6"><div className="flex items-center gap-3"><Avatar musician={invitation.musician} /><div><p className="font-bold">{invitation.musician?.first_name} {invitation.musician?.last_name}</p><p className="text-xs text-muted-foreground">{existing ? "Registro guardado" : "Sin registrar"}</p></div></div><Select value={status} disabled={!canManage} onValueChange={(value: AttendanceStatus) => setStatus(value)}><SelectTrigger className="h-9 rounded-xl"><SelectValue /></SelectTrigger><SelectContent>{["PRESENTE","AUSENTE","JUSTIFICADO","TARDE"].map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select><Input type="time" value={arrival} disabled={!canManage || status === "AUSENTE" || status === "JUSTIFICADO"} onChange={(event) => setArrival(event.target.value)} className="h-9 rounded-xl" /><Input type="time" value={departure} disabled={!canManage || status === "AUSENTE" || status === "JUSTIFICADO"} onChange={(event) => setDeparture(event.target.value)} className="h-9 rounded-xl" />{canManage && <Button size="sm" variant={existing ? "outline" : "default"} className="rounded-xl" onClick={() => void save()}><CheckCircle2 className="mr-1 size-4" /> Guardar</Button>}</div>; }
+function Avatar({ musician }: { musician: Musician | null }) { return <span className="grid size-10 shrink-0 place-items-center overflow-hidden rounded-xl bg-primary/10 text-xs font-black text-primary">{musician?.photo_url ? <img src={musician.photo_url} alt="" className="h-full w-full object-cover" /> : `${musician?.first_name?.[0] ?? "M"}${musician?.last_name?.[0] ?? ""}`}</span>; }
+function Counter({ value, label }: { value: number; label: string }) { return <div className="px-3"><p className="text-2xl font-black">{value}</p><p className="text-[10px] text-white/65">{label}</p></div>; }
+function Info({ label, value }: { label: string; value: string }) { return <div><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 font-bold">{value}</p></div>; }
+function formatDate(value: string) { return new Intl.DateTimeFormat("es-CO", { weekday: "long", day: "numeric", month: "long", year: "numeric" }).format(new Date(`${value}T12:00:00`)); }
+function normalizePhone(value: string) { const digits = value.replace(/\D/g, ""); return digits.length === 10 && digits.startsWith("3") ? `57${digits}` : digits.length >= 11 ? digits : ""; }

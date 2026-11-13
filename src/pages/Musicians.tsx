@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronRight, Filter, ListFilter, Search, SlidersHorizontal, Trash2, UserCheck, UsersRound } from "lucide-react";
+import { ChevronRight, Filter, ListFilter, LoaderCircle, Search, SlidersHorizontal, Trash2, UserCheck, UsersRound } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { DeleteMusicianDialog } from "@/components/admin/DeleteMusicianDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -31,8 +30,7 @@ export default function Musicians() {
   const [instruments, setInstruments] = useState<Instrument[]>([]);
   const [roles, setRoles] = useState<MusicalRole[]>([]);
   const [loading, setLoading] = useState(true);
-  const [deletingTarget, setDeletingTarget] = useState<Musician | null>(null);
-  const [deleting, setDeleting] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("ALL");
   const [instrument, setInstrument] = useState("ALL");
@@ -72,27 +70,25 @@ export default function Musicians() {
     return text.includes(query.toLowerCase()) && (status === "ALL" || musician.status === status) && instrumentMatch;
   }), [musicians, query, status, instrument]);
 
-  const confirmDelete = async (anonymize: boolean) => {
-    if (!membership || !deletingTarget) return;
-    if (deletingTarget.user_id === session?.user.id) {
+  const remove = async (musician: Musician) => {
+    if (!membership || musician.user_id === session?.user.id) {
       toast.error("No puedes eliminar tu propia ficha de músico");
       return;
     }
-    const name = `${deletingTarget.first_name} ${deletingTarget.last_name}`;
-    setDeleting(true);
+    const name = `${musician.first_name} ${musician.last_name}`;
+    if (!window.confirm(`¿Eliminar definitivamente a ${name}? También se eliminará su acceso de usuario. Esta acción no se puede deshacer.`)) return;
+
+    setDeletingId(musician.id);
     try {
-      await deleteMusician(membership.organizationId, deletingTarget, { anonymize, actorUserId: session?.user.id });
-      toast.success(`${name} fue eliminado del directorio`, {
-        description: anonymize ? "El historial se conservó anonimizado." : "Los registros históricos se mantuvieron intactos.",
-      });
-      setDeletingTarget(null);
+      await deleteMusician(membership.organizationId, musician);
+      toast.success(`${name} fue eliminado`);
       await load();
     } catch (error) {
       toast.error("No se pudo eliminar el músico", {
-        description: error instanceof Error ? error.message : undefined,
+        description: error instanceof Error ? error.message : "Si tiene historial operativo, debes suspender su acceso para conservarlo.",
       });
     } finally {
-      setDeleting(false);
+      setDeletingId(null);
     }
   };
 
@@ -140,18 +136,7 @@ export default function Musicians() {
                       </div>
                       <div className="mt-5 flex flex-wrap gap-2"><Badge className={`rounded-lg ${statusTone[musician.status]}`}>{musician.status}</Badge>{musician.musician_instruments.map((item) => item.instrument && <Badge key={item.id} variant="outline" className="rounded-lg">{item.instrument.name}</Badge>)}</div>
                       <div className={`mt-5 grid gap-3 border-t pt-4 text-xs ${canViewDetails ? "grid-cols-2" : "grid-cols-1"}`}><div><p className="text-muted-foreground">Nivel</p><p className="mt-1 font-bold">{musician.level}</p></div>{canViewDetails && <div><p className="text-muted-foreground">Tarifa evento</p><p className="mt-1 font-bold">{formatMoney(musician.event_rate)}</p></div>}</div>
-                      {canDelete && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          disabled={isSelf}
-                          onClick={(event) => { event.stopPropagation(); setDeletingTarget(musician); }}
-                          className="mt-4 w-full rounded-xl text-destructive hover:bg-destructive/10 hover:text-destructive"
-                        >
-                          <Trash2 className="mr-2 size-4" />
-                          {isSelf ? "Tu ficha está protegida" : "Eliminar músico y usuario"}
-                        </Button>
-                      )}
+                      {canDelete && <Button variant="ghost" size="sm" disabled={isSelf || deletingId === musician.id} onClick={(event) => { event.stopPropagation(); void remove(musician); }} className="mt-4 w-full rounded-xl text-destructive hover:bg-destructive/10 hover:text-destructive">{deletingId === musician.id ? <LoaderCircle className="mr-2 size-4 animate-spin" /> : <Trash2 className="mr-2 size-4" />}{isSelf ? "Tu ficha está protegida" : "Eliminar músico y usuario"}</Button>}
                     </CardContent>
                   </Card>
                 );
@@ -163,14 +148,6 @@ export default function Musicians() {
         </TabsContent>
         <TabsContent value="catalogs"><CatalogManager organizationId={membership?.organizationId ?? ""} instruments={instruments} roles={roles} canManage={canManage} onChanged={() => void load()} /></TabsContent>
       </Tabs>
-
-      <DeleteMusicianDialog
-        open={Boolean(deletingTarget)}
-        onOpenChange={(open) => { if (!open) setDeletingTarget(null); }}
-        musicianName={deletingTarget ? `${deletingTarget.first_name} ${deletingTarget.last_name}` : ""}
-        deleting={deleting}
-        onConfirm={confirmDelete}
-      />
     </div>
   );
 }
