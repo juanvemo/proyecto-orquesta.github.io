@@ -227,7 +227,22 @@ export default function Finances() {
 function Metric({ icon: Icon, label, value, tone }: { icon: typeof CircleDollarSign; label: string; value: number; tone: string }) { return <Card className="rounded-3xl shadow-none"><CardContent className="flex items-center gap-4 p-5"><span className={`grid size-11 place-items-center rounded-2xl ${tone}`}><Icon className="size-5" /></span><div><p className="text-xl font-black">{money(value)}</p><p className="text-xs text-muted-foreground">{label}</p></div></CardContent></Card>; }
 function ReceivableSummary({ icon: Icon, label, value }: { icon: typeof WalletCards; label: string; value: number }) { return <Card className="rounded-3xl border-amber-500/20 bg-amber-500/[0.04] shadow-none"><CardContent className="flex items-center gap-4 p-5"><span className="grid size-11 place-items-center rounded-2xl bg-amber-500/10 text-amber-700"><Icon className="size-5" /></span><div><p className="text-xl font-black">{money(value)}</p><p className="text-xs text-muted-foreground">{label}</p></div></CardContent></Card>; }
 function ReceivableSection({ title, description, empty, children }: { title: string; description: string; empty: string; children: React.ReactNode }) { const hasChildren = Array.isArray(children) ? children.length > 0 : Boolean(children); return <Card className="overflow-hidden rounded-[2rem] shadow-none"><div className="border-b p-5 sm:px-6"><h2 className="font-black">{title}</h2><p className="text-xs text-muted-foreground">{description}</p></div><CardContent className="p-0">{hasChildren ? <div className="divide-y">{children}</div> : <Empty text={empty} />}</CardContent></Card>; }
-function PaymentActions({ id, status, updating, onChange, allowCancel = false }: { id: string; status: string; updating: string | null; onChange: (id: string, status: any) => Promise<void>; allowCancel?: boolean }) { if (status === "PENDIENTE") return <div className="flex gap-2"><Button size="sm" disabled={updating === id} onClick={() => void onChange(id, "PAGADO")} className="rounded-xl bg-emerald-600 hover:bg-emerald-700"><CheckCircle2 className="mr-1 size-3" />Confirmar</Button>{allowCancel && <Button size="sm" variant="outline" disabled={updating === id} onClick={() => void onChange(id, "CANCELADO")} className="rounded-xl">Cancelar</Button>}</div>; return <Button size="sm" variant="outline" disabled={updating === id} onClick={() => void onChange(id, "PENDIENTE")} className="rounded-xl"><Undo2 className="mr-1 size-3" />Reabrir</Button>; }
+type PaymentActionsProps =
+  | { id: string; status: string; updating: string | null; onChange: (id: string, status: "PAGADO" | "PENDIENTE" | "CANCELADO") => Promise<void>; allowCancel: true }
+  | { id: string; status: string; updating: string | null; onChange: (id: string, status: "PAGADO" | "PENDIENTE") => Promise<void>; allowCancel?: false };
+
+function PaymentActions(props: PaymentActionsProps) {
+  const { id, status, updating } = props;
+  if (status === "PENDIENTE") {
+    return (
+      <div className="flex gap-2">
+        <Button size="sm" disabled={updating === id} onClick={() => void props.onChange(id, "PAGADO")} className="rounded-xl bg-emerald-600 hover:bg-emerald-700"><CheckCircle2 className="mr-1 size-3" />Confirmar</Button>
+        {props.allowCancel && <Button size="sm" variant="outline" disabled={updating === id} onClick={() => void props.onChange(id, "CANCELADO")} className="rounded-xl">Cancelar</Button>}
+      </div>
+    );
+  }
+  return <Button size="sm" variant="outline" disabled={updating === id} onClick={() => void props.onChange(id, "PENDIENTE")} className="rounded-xl"><Undo2 className="mr-1 size-3" />Reabrir</Button>;
+}
 function Status({ status }: { status: string }) { return <Badge className={`w-fit rounded-lg ${status === "PAGADO" ? "bg-emerald-500/10 text-emerald-700" : status === "PENDIENTE" ? "bg-amber-500/10 text-amber-700" : "bg-slate-500/10 text-slate-700"}`}>{status}</Badge>; }
 function Value({ label, value }: { label: string; value: number }) { return <div className="rounded-2xl bg-muted/45 p-3"><p className={`font-black ${value < 0 ? "text-rose-600" : "text-emerald-600"}`}>{money(value)}</p><p className="text-[10px] text-muted-foreground">{label}</p></div>; }
 function Empty({ text }: { text: string }) { return <div className="p-10 text-center"><WalletCards className="mx-auto size-9 text-primary" /><p className="mt-3 text-sm text-muted-foreground">{text}</p></div>; }
