@@ -86,11 +86,21 @@ serve(async (req) => {
         if ((count ?? 0) <= 1) return new Response(JSON.stringify({ error: "No se puede eliminar el último administrador" }), { status: 409, headers });
       }
 
+      const anonymize = Boolean(body.anonymize);
       const { data: musician } = await admin.from("musicians").select("id,first_name,last_name").eq("organization_id", organizationId).eq("user_id", targetUserId).maybeSingle();
       if (musician) {
-        const relatedTables = ["event_musicians", "music_task_assignees", "rehearsal_attendance", "rehearsal_contributions", "rehearsal_musicians"];
-        const counts = await Promise.all(relatedTables.map((table) => admin.from(table).select("id", { count: "exact", head: true }).eq("musician_id", musician.id)));
-        if (counts.some((result) => (result.count ?? 0) > 0)) return new Response(JSON.stringify({ error: "Este músico tiene historial de eventos, ensayos, aportes o tareas. Suspende su acceso en lugar de eliminarlo." }), { status: 409, headers });
+        const snapshot = anonymize ? "Músico retirado (anonimizado)" : `${musician.first_name} ${musician.last_name}`.trim();
+        await Promise.all([
+          admin.from("event_musicians").update({ musician_name_snapshot: snapshot, musician_id: null } as Record<string, unknown>).eq("musician_id", musician.id),
+          admin.from("rehearsal_attendance").update({ musician_name_snapshot: snapshot, musician_id: null } as Record<string, unknown>).eq("musician_id", musician.id),
+          admin.from("rehearsal_contributions").update({ musician_name_snapshot: snapshot, musician_id: null } as Record<string, unknown>).eq("musician_id", musician.id),
+          admin.from("music_task_assignees").update({ musician_name_snapshot: snapshot, musician_id: null } as Record<string, unknown>).eq("musician_id", musician.id),
+          admin.from("rehearsal_musicians").delete().eq("musician_id", musician.id),
+          admin.from("availability").delete().eq("musician_id", musician.id),
+          admin.from("musician_instruments").delete().eq("musician_id", musician.id),
+          admin.from("musician_roles").delete().eq("musician_id", musician.id),
+          admin.from("rehearsals").update({ responsible_musician_id: null }).eq("responsible_musician_id", musician.id),
+        ]);
 
         const { error: musicianDeleteError } = await admin.from("musicians").delete().eq("id", musician.id).eq("organization_id", organizationId);
         if (musicianDeleteError) throw musicianDeleteError;
@@ -108,8 +118,8 @@ serve(async (req) => {
 
       const { error: deleteError } = await admin.auth.admin.deleteUser(targetUserId);
       if (deleteError) throw deleteError;
-      await admin.from("audit_logs").insert({ organization_id: organizationId, user_id: authData.user.id, action: "DELETE", entity_type: "user", entity_id: targetUserId, previous_value: { role: targetRole, musician_id: musician?.id ?? null }, new_value: { deleted: true } });
-      console.log("[admin-manage-user] Usuario eliminado", { actor: authData.user.id, target: targetUserId, musician: musician?.id ?? null });
+      await admin.from("audit_logs").insert({ organization_id: organizationId, user_id: authData.user.id, action: "DELETE", entity_type: "user", entity_id: targetUserId, previous_value: { role: targetRole, musician_id: musician?.id ?? null }, new_value: { deleted: true, anonymized: anonymize, history_preserved: true } });
+      console.log("[admin-manage-user] Usuario eliminado definitivamente", { actor: authData.user.id, target: targetUserId, musician: musician?.id ?? null });
       return new Response(JSON.stringify({ success: true }), { status: 200, headers });
     }
 

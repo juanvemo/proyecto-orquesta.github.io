@@ -1,25 +1,62 @@
-import { useEffect, useState } from "react";
-import { FileDown, LoaderCircle, Plus, Save, Send, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { FileDown, LoaderCircle, PackageCheck, Plus, Save, Send, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { useAuth } from "@/contexts/AuthContext";
+import {
+  createInventoryReservation,
+  getAvailableUnits,
+  listInventory,
+  updateReservationStatus,
+} from "@/features/inventory/service";
+import type { InventoryItem, InventoryReservation, ReservationStatus } from "@/features/inventory/types";
 import { assetUrl } from "@/lib/assets";
 import { createInitialRider, saveRiderVersion } from "./service";
 import type { InputChannel, MonitorMix, ProductionContact, RiderContent, RiderStatus, StagePosition, TechnicalEvent } from "./types";
 
 export function RiderEditorDialog({ event, open, onOpenChange, onSaved }: { event: TechnicalEvent | null; open: boolean; onOpenChange: (open: boolean) => void; onSaved: () => void }) {
+  const { membership, session } = useAuth();
   const [content, setContent] = useState<RiderContent | null>(null);
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => { if (open && event) { setContent(createInitialRider(event)); setNotes(""); } }, [open, event]);
+  const [invItems, setInvItems] = useState<InventoryItem[]>([]);
+  const [allReservations, setAllReservations] = useState<InventoryReservation[]>([]);
+  const [eqItemId, setEqItemId] = useState("");
+  const [eqQty, setEqQty] = useState(1);
+  const [eqResp, setEqResp] = useState("");
+
+  const loadEquipment = useCallback(async () => {
+    if (!membership || !event) return;
+    try {
+      const res = await listInventory(membership.organizationId);
+      setInvItems(res.items);
+      setAllReservations(res.reservations);
+      if (res.items.length && !eqItemId) setEqItemId(res.items[0].id);
+    } catch {
+      // Non-blocking if inventory store not initialized yet
+    }
+  }, [membership, event, eqItemId]);
+
+  useEffect(() => {
+    if (open && event) {
+      setContent(createInitialRider(event));
+      setNotes("");
+      void loadEquipment();
+    }
+  }, [open, event, loadEquipment]);
+
   if (!event || !content) return null;
+
+  const eventReservations = allReservations.filter((r) => r.event_id === event.id);
 
   const save = async (status: RiderStatus) => {
     setSaving(true);
@@ -28,17 +65,96 @@ export function RiderEditorDialog({ event, open, onOpenChange, onSaved }: { even
     finally { setSaving(false); }
   };
 
+  const reserveEquipment = async () => {
+    if (!membership || !session || !eqItemId) return;
+    try {
+      await createInventoryReservation(membership.organizationId, session.user.id, {
+        itemId: eqItemId,
+        eventId: event.id,
+        quantity: eqQty,
+        responsibleName: eqResp || "Producción Técnica",
+        notes: `Asignado desde Rider · ${event.name}`,
+      });
+      toast.success("Equipo asignado al evento");
+      await loadEquipment();
+    } catch (error) {
+      toast.error("No fue posible reservar equipo", { description: error instanceof Error ? error.message : undefined });
+    }
+  };
+
   const field = (section: "sound" | "power" | "logistics", key: string, value: string) => setContent((current) => current ? ({ ...current, [section]: { ...current[section], [key]: value } }) : current);
   const versions = event.rider?.versions ?? [];
 
   return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="rider-print-root max-h-[94vh] overflow-y-auto rounded-[2rem] p-0 sm:max-w-6xl"><div className="border-b px-5 py-5 print:hidden sm:px-7"><DialogHeader><div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start"><div><div className="flex items-center gap-2"><Badge className="rounded-lg">{event.rider?.status ?? "NUEVO"}</Badge><Badge variant="outline" className="rounded-lg">Versión {event.rider?.current_version ?? 0}</Badge></div><DialogTitle className="mt-3 text-2xl font-black">Rider · {event.name}</DialogTitle><DialogDescription>{formatDate(event.event_date)} · {event.start_time.slice(0,5)} · {event.venue}, {event.city}</DialogDescription></div><Button type="button" variant="outline" onClick={() => window.print()} className="print:hidden rounded-xl"><FileDown className="mr-2 size-4" />Imprimir / PDF</Button></div></DialogHeader></div>
     <RiderPrintView event={event} content={content} />
-    <Tabs defaultValue="general" className="p-5 print:hidden sm:p-7"><TabsList className="print:hidden mb-6 flex h-auto w-full justify-start overflow-x-auto rounded-2xl p-1.5"><TabsTrigger value="general" className="rounded-xl">General</TabsTrigger><TabsTrigger value="stage" className="rounded-xl">Stage plot</TabsTrigger><TabsTrigger value="inputs" className="rounded-xl">Input / patch</TabsTrigger><TabsTrigger value="monitors" className="rounded-xl">Monitores</TabsTrigger><TabsTrigger value="logistics" className="rounded-xl">Logística</TabsTrigger><TabsTrigger value="history" className="rounded-xl">Versiones</TabsTrigger></TabsList>
+    <Tabs defaultValue="general" className="p-5 print:hidden sm:p-7"><TabsList className="print:hidden mb-6 flex h-auto w-full justify-start overflow-x-auto rounded-2xl p-1.5"><TabsTrigger value="general" className="rounded-xl">General</TabsTrigger><TabsTrigger value="stage" className="rounded-xl">Stage plot</TabsTrigger><TabsTrigger value="inputs" className="rounded-xl">Input / patch</TabsTrigger><TabsTrigger value="monitors" className="rounded-xl">Monitores</TabsTrigger><TabsTrigger value="logistics" className="rounded-xl">Logística</TabsTrigger><TabsTrigger value="equipment" className="rounded-xl">Equipos ({eventReservations.length})</TabsTrigger><TabsTrigger value="history" className="rounded-xl">Versiones</TabsTrigger></TabsList>
       <TabsContent value="general" className="space-y-6"><Section title="Información técnica"><div className="grid gap-4 sm:grid-cols-2"><Field label="Contacto técnico" value={content.general.technical_contact} onChange={(value) => setContent({ ...content, general: { ...content.general, technical_contact: value } })} /><Field label="Teléfono técnico" value={content.general.technical_phone} onChange={(value) => setContent({ ...content, general: { ...content.general, technical_phone: value } })} /><Area label="Resumen y requerimientos" value={content.general.summary} onChange={(value) => setContent({ ...content, general: { ...content.general, summary: value } })} className="sm:col-span-2" /></div></Section><div className="grid gap-5 lg:grid-cols-2"><Section title="Sonido"><div className="grid gap-4 sm:grid-cols-2"><Field label="Sistema PA" value={content.sound.pa} onChange={(value) => field("sound","pa",value)} /><Field label="Consola" value={content.sound.console} onChange={(value) => field("sound","console",value)} /><Area label="Micrófonos" value={content.sound.microphones} onChange={(value) => field("sound","microphones",value)} /><Area label="Cajas directas" value={content.sound.di_boxes} onChange={(value) => field("sound","di_boxes",value)} /><Area label="Backline" value={content.sound.backline} onChange={(value) => field("sound","backline",value)} className="sm:col-span-2" /></div></Section><Section title="Iluminación y energía"><Area label="Requerimientos de iluminación" value={content.lighting.requirements} onChange={(value) => setContent({ ...content, lighting: { requirements: value } })} /><div className="mt-4 grid gap-4 sm:grid-cols-2"><Field label="Voltaje" value={content.power.voltage} onChange={(value) => field("power","voltage",value)} /><Field label="Circuitos" value={content.power.circuits} onChange={(value) => field("power","circuits",value)} /><Field label="Puesta a tierra" value={content.power.grounding} onChange={(value) => field("power","grounding",value)} /><Field label="Notas eléctricas" value={content.power.notes} onChange={(value) => field("power","notes",value)} /></div></Section></div><Section title="Notas finales"><Area label="Observaciones para el productor o venue" value={content.final_notes} onChange={(value) => setContent({ ...content, final_notes: value })} /></Section></TabsContent>
       <TabsContent value="stage"><StageEditor rows={content.stage_plot} onChange={(stage_plot) => setContent({ ...content, stage_plot })} /></TabsContent>
       <TabsContent value="inputs"><InputEditor rows={content.input_list} onChange={(input_list) => setContent({ ...content, input_list })} /></TabsContent>
       <TabsContent value="monitors"><MonitorEditor rows={content.monitor_mixes} onChange={(monitor_mixes) => setContent({ ...content, monitor_mixes })} /></TabsContent>
-      <TabsContent value="logistics" className="space-y-6"><Section title="Horarios y acceso"><div className="grid gap-4 sm:grid-cols-2"><Field label="Hora de llegada" type="time" value={content.logistics.arrival_time} onChange={(value) => field("logistics","arrival_time",value)} /><Field label="Prueba de sonido" type="time" value={content.logistics.soundcheck_time} onChange={(value) => field("logistics","soundcheck_time",value)} /><Area label="Carga y descarga" value={content.logistics.load_in} onChange={(value) => field("logistics","load_in",value)} /><Area label="Acceso al lugar" value={content.logistics.access} onChange={(value) => field("logistics","access",value)} /><Area label="Parqueadero" value={content.logistics.parking} onChange={(value) => field("logistics","parking",value)} /><Area label="Transporte" value={content.logistics.transport} onChange={(value) => field("logistics","transport",value)} /><Area label="Hospitality / camerino / alimentación" value={content.logistics.hospitality} onChange={(value) => field("logistics","hospitality",value)} className="sm:col-span-2" /></div></Section><ContactEditor rows={content.contacts} onChange={(contacts) => setContent({ ...content, contacts })} /></TabsContent>
+      <TabsContent value="logistics" className="space-y-6"><Section title="Horarios y acceso"><div className="grid gap-4 sm:grid-cols-2"><Field label="Hora de llegada" type="time" value={content.logistics.arrival_time} onChange={(value) => field("logistics","arrival_time",value)} /><Field label="Prueba de sonido" type="time" value={content.logistics.soundcheck_time} onChange={(value) => field("logistics","soundcheck_time",value)} /><Area label="Carga y descarga / montaje" value={content.logistics.load_in} onChange={(value) => field("logistics","load_in",value)} /><Area label="Acceso al lugar" value={content.logistics.access} onChange={(value) => field("logistics","access",value)} /><Area label="Parqueadero" value={content.logistics.parking} onChange={(value) => field("logistics","parking",value)} /><Area label="Transporte y vehículos" value={content.logistics.transport} onChange={(value) => field("logistics","transport",value)} /><Area label="Hospitality / camerino / alimentación" value={content.logistics.hospitality} onChange={(value) => field("logistics","hospitality",value)} className="sm:col-span-2" /></div></Section><ContactEditor rows={content.contacts} onChange={(contacts) => setContent({ ...content, contacts })} /></TabsContent>
+      <TabsContent value="equipment" className="space-y-4">
+        <Section title="Equipos del inventario asignados a este evento">
+          {invItems.length ? (
+            <div className="mb-4 grid gap-3 rounded-2xl bg-muted/40 p-4 sm:grid-cols-[1fr_90px_1fr_auto] sm:items-end">
+              <div>
+                <Label>Equipo disponible</Label>
+                <Select value={eqItemId} onValueChange={setEqItemId}>
+                  <SelectTrigger className="mt-1.5 rounded-xl bg-background"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {invItems.map((i) => (
+                      <SelectItem key={i.id} value={i.id}>{i.name} (Disp: {getAvailableUnits(i, allReservations)})</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Cant.</Label>
+                <Input type="number" min={1} value={eqQty} onChange={(e) => setEqQty(Number(e.target.value))} className="mt-1.5 rounded-xl bg-background" />
+              </div>
+              <div>
+                <Label>Responsable</Label>
+                <Input value={eqResp} onChange={(e) => setEqResp(e.target.value)} placeholder="Técnico responsable" className="mt-1.5 rounded-xl bg-background" />
+              </div>
+              <Button type="button" onClick={() => void reserveEquipment()} className="rounded-xl font-bold">
+                <Plus className="mr-1.5 size-4" />
+                Asignar
+              </Button>
+            </div>
+          ) : (
+            <p className="mb-4 rounded-xl bg-muted/40 p-3 text-xs text-muted-foreground">Registra equipos en el módulo Inventario Técnico para asignarlos directamente desde aquí.</p>
+          )}
+          <div className="space-y-2">
+            {eventReservations.map((res) => (
+              <div key={res.id} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border p-3 text-sm">
+                <div>
+                  <p className="font-bold"><PackageCheck className="mr-1.5 inline size-4 text-primary" />{res.item?.name || "Equipo"} × {res.quantity}</p>
+                  <p className="text-xs text-muted-foreground">Responsable: {res.responsible_name || "Equipo técnico"}</p>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  {(["RESERVADO", "ENTREGADO", "DEVUELTO"] as ReservationStatus[]).map((st) => (
+                    <Button
+                      key={st}
+                      type="button"
+                      size="sm"
+                      variant={res.status === st ? "default" : "outline"}
+                      className="rounded-lg text-[11px]"
+                      onClick={async () => {
+                        if (!membership || !session) return;
+                        await updateReservationStatus(membership.organizationId, session.user.id, res.id, st);
+                        void loadEquipment();
+                      }}
+                    >
+                      {st}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            ))}
+            {!eventReservations.length && <p className="text-center text-xs text-muted-foreground py-4">No hay equipos reservados para este evento.</p>}
+          </div>
+        </Section>
+      </TabsContent>
       <TabsContent value="history"><Section title="Historial de versiones"><div className="space-y-3">{versions.map((version) => <div key={version.id} className="flex flex-col gap-3 rounded-2xl border p-4 sm:flex-row sm:items-center"><span className="grid size-10 place-items-center rounded-xl bg-primary/10 font-black text-primary">v{version.version_number}</span><div className="min-w-0 flex-1"><p className="font-black">{version.status}</p><p className="text-xs text-muted-foreground">{new Intl.DateTimeFormat("es-CO", { dateStyle: "medium", timeStyle: "short" }).format(new Date(version.created_at))}{version.notes ? ` · ${version.notes}` : ""}</p></div><Button type="button" variant="outline" size="sm" onClick={() => setContent(version.content_snapshot)} className="rounded-xl">Usar como base</Button></div>)}{!versions.length && <p className="rounded-2xl border border-dashed p-8 text-center text-sm text-muted-foreground">La primera versión aparecerá después de guardar.</p>}</div></Section></TabsContent>
       <div className="print:hidden mt-6 grid gap-4 border-t pt-5 lg:grid-cols-[1fr_auto]"><div><Label>Notas de esta versión</Label><Input value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Ej. Ajuste de canales y horarios" className="mt-2 rounded-xl" /></div><div className="flex flex-col gap-2 sm:flex-row lg:items-end"><Button type="button" variant="outline" disabled={saving} onClick={() => void save("BORRADOR")} className="rounded-xl"><Save className="mr-2 size-4" />Guardar borrador</Button><Button type="button" disabled={saving} onClick={() => void save("LISTO")} className="rounded-xl"><Save className="mr-2 size-4" />Marcar listo</Button><Button type="button" disabled={saving} onClick={() => void save("ENVIADO")} className="rounded-xl bg-emerald-600 hover:bg-emerald-700">{saving ? <LoaderCircle className="mr-2 size-4 animate-spin" /> : <Send className="mr-2 size-4" />}Marcar enviado</Button></div></div>
     </Tabs>

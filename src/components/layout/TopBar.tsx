@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Check, ChevronDown, LogOut, Menu, Moon, Search, Settings, Sun, User } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Check, ChevronDown, LogOut, Menu, Moon, Search, Settings, Sun, User, Volume2, VolumeX } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useNavigate } from "react-router-dom";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -7,28 +7,44 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/contexts/AuthContext";
+import { isSoundEnabled, playUiSound, setSoundEnabled, subscribeSoundSetting, unlockUiAudio } from "@/lib/uiSound";
 import { GlobalSearch } from "./GlobalSearch";
 import { NotificationCenter } from "./NotificationCenter";
 
 export function TopBar({ onOpenMenu }: { onOpenMenu: () => void }) {
   const [searchOpen, setSearchOpen] = useState(false);
+  const [soundOn, setSoundOn] = useState(() => isSoundEnabled());
   const { user, membership, signOut, hasPermission } = useAuth();
   const { resolvedTheme, setTheme } = useTheme();
   const navigate = useNavigate();
   const initials = `${user?.firstName?.[0] ?? "U"}${user?.lastName?.[0] ?? ""}`.toUpperCase();
 
+  useEffect(() => subscribeSoundSetting(setSoundOn), []);
+
+  const toggleSound = () => {
+    const next = !soundOn;
+    setSoundEnabled(next);
+    if (next) {
+      unlockUiAudio();
+      playUiSound("confirm");
+    }
+  };
+
   return (
     <>
-      <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b bg-background/90 px-4 backdrop-blur-xl sm:px-6">
+      <header className="sticky top-0 z-30 flex h-16 items-center gap-2 border-b bg-background/90 px-3 backdrop-blur-xl sm:gap-3 sm:px-6">
         <Button variant="ghost" size="icon" className="rounded-xl lg:hidden" onClick={onOpenMenu}><Menu className="size-5" /><span className="sr-only">Abrir menú</span></Button>
-        <button onClick={() => setSearchOpen(true)} className="group flex h-10 min-w-0 flex-1 items-center gap-3 rounded-xl border bg-muted/35 px-3 text-left text-sm text-muted-foreground transition-colors hover:border-primary/30 hover:bg-muted/60 sm:max-w-md">
+        <button onClick={() => setSearchOpen(true)} className="group flex h-10 min-w-0 flex-1 items-center gap-2 rounded-xl border bg-muted/35 px-3 text-left text-sm text-muted-foreground transition-colors hover:border-primary/30 hover:bg-muted/60 sm:max-w-md sm:gap-3">
           <Search className="size-4 shrink-0" /><span className="truncate">Buscar músicos, eventos, documentos…</span><kbd className="ml-auto hidden rounded-md border bg-background px-2 py-0.5 text-[10px] font-bold sm:block">Ctrl K</kbd>
         </button>
-        <div className="ml-auto flex items-center gap-1.5">
+        <div className="ml-auto flex items-center gap-1 sm:gap-1.5">
+          <Button variant="ghost" size="icon" className="rounded-xl" onClick={toggleSound} title={soundOn ? "Desactivar sonidos" : "Activar sonidos"}>
+            {soundOn ? <Volume2 className="size-4 text-primary" /> : <VolumeX className="size-4 text-muted-foreground" />}<span className="sr-only">{soundOn ? "Desactivar sonidos" : "Activar sonidos"}</span>
+          </Button>
           <Button variant="ghost" size="icon" className="rounded-xl" onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}>
             {resolvedTheme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}<span className="sr-only">Cambiar tema</span>
           </Button>
-          <NotificationCenter userId={user?.id} />
+          <NotificationCenter userId={user?.id} organizationId={membership?.organizationId} />
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button className="ml-1 flex items-center gap-2 rounded-xl p-1.5 pr-2 transition-colors hover:bg-muted">

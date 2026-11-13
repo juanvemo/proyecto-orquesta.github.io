@@ -2,10 +2,11 @@ import { Clock3, LogOut, RefreshCw, ShieldCheck } from "lucide-react";
 import { Navigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
-import { assetUrl } from "@/lib/assets";
+import { usePublicIdentity } from "@/hooks/usePublicIdentity";
 
 export default function PendingApproval() {
   const { session, membership, user, loading, refreshAccess, signOut } = useAuth();
+  const { identity } = usePublicIdentity();
 
   if (!loading && !session) return <Navigate to="/login" replace />;
   if (!loading && membership?.approvalStatus === "APPROVED") return <Navigate to="/" replace />;
@@ -21,7 +22,7 @@ export default function PendingApproval() {
       <div className="absolute -left-20 top-16 size-72 rounded-full bg-primary/10 blur-3xl" />
       <div className="absolute -right-20 bottom-16 size-80 rounded-full bg-orange-400/10 blur-3xl" />
       <section className="relative w-full max-w-lg rounded-[2rem] border bg-card p-7 text-center shadow-2xl shadow-violet-950/10 sm:p-10">
-        <img src={assetUrl("/assets/proyecto-orquesta-logo.png")} alt="Proyecto Orquesta" className="mx-auto h-24 w-auto" />
+        <img src={identity.logo_url} alt={identity.name} className="mx-auto h-24 w-auto object-contain" />
         <div className="mx-auto mt-7 grid size-16 place-items-center rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400"><Clock3 className="size-8" /></div>
         <p className="mt-6 text-sm font-bold uppercase tracking-[0.16em] text-primary">Solicitud recibida</p>
         <h1 className="mt-2 text-3xl font-black tracking-tight">Tu acceso está en revisión</h1>

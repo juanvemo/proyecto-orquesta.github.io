@@ -1,7 +1,10 @@
 import { supabase } from "@/integrations/supabase/client";
+import { logAuditEvent } from "@/lib/audit";
+import { isMissingTableOrRpcError } from "@/lib/orgStore";
 import type { Availability, Instrument, MusicalRole, Musician, MusicianFormValues } from "./types";
 
 const musicianSelect = "*,musician_instruments(id,is_primary,proficiency,instrument:instruments(id,organization_id,name,category,description,is_active)),musician_roles(id,is_primary,musical_role:musical_roles(id,organization_id,name,description,is_active)),availability(*)";
+const DELETED_TAG = "[ELIMINADO_DEFINITIVO]";
 
 function normalizeMusician(value: unknown): Musician {
   const musician = value as Musician;
@@ -13,16 +16,20 @@ function normalizeMusician(value: unknown): Musician {
   };
 }
 
+function isSoftDeletedMusician(musician: Musician): boolean {
+  return Boolean(musician.observations?.includes(DELETED_TAG));
+}
+
 export async function listMusicians(organizationId: string) {
   const { data, error } = await supabase.from("musicians").select(musicianSelect).eq("organization_id", organizationId).order("first_name");
   if (error) throw error;
-  return (data ?? []).map(normalizeMusician);
+  return (data ?? []).map(normalizeMusician).filter((m) => !isSoftDeletedMusician(m));
 }
 
 export async function listMusicianDirectory(organizationId: string) {
   const { data, error } = await supabase.rpc("list_musician_directory", { target_organization_id: organizationId });
   if (error) throw error;
-  return (Array.isArray(data) ? data : []).map(normalizeMusician);
+  return (Array.isArray(data) ? data : []).map(normalizeMusician).filter((m) => !isSoftDeletedMusician(m));
 }
 
 export async function getMusician(organizationId: string, musicianId: string) {
@@ -90,29 +97,125 @@ export async function setMusicianStatus(organizationId: string, musicianId: stri
   if (error) throw error;
 }
 
-export async function deleteMusician(organizationId: string, musician: Pick<Musician, "id" | "user_id">) {
-  if (!musician.user_id) {
-    const { error } = await supabase.from("musicians").delete().eq("organization_id", organizationId).eq("id", musician.id);
-    if (error) throw error;
+export async function deleteMusician(
+  organizationId: string,
+  musician: Pick<Musician, "id" | "user_id" | "first_name" | "last_name">,
+  options: { anonymize?: boolean; actorUserId?: string } = {},
+) {
+  const anonymize = Boolean(options.anonymize);
+  const fullName = `${musician.first_name ?? ""} ${musician.last_name ?? ""}`.trim() || "Músico";
+
+  // 1. Try unified non-destructive historical snapshot RPC (deployed in master migration)
+  const rpcResult = await supabase.rpc("admin_force_delete_musician", {
+    target_organization_id: organizationId,
+    target_musician_id: musician.id,
+    anonymize_history: anonymize,
+  });
+
+  if (!rpcResult.error) {
+    if (musician.user_id) {
+      await supabase.functions.invoke("admin-manage-user", {
+        body: { action: "delete", organization_id: organizationId, user_id: musician.user_id, anonymize },
+      }).catch(() => undefined);
+    }
     return;
   }
 
-  const { error } = await supabase.functions.invoke("admin-manage-user", {
-    body: { action: "delete", organization_id: organizationId, user_id: musician.user_id },
-  });
-  if (!error) return;
+  // If error is unrelated to missing RPC, still try edge function and safe cleanup fallback
+  const rpcMissing = isMissingTableOrRpcError(rpcResult.error);
 
-  let message = error.message;
-  const context = (error as { context?: Response }).context;
-  if (context) {
-    try {
-      const payload = await context.clone().json() as { error?: string };
-      if (payload.error) message = payload.error;
-    } catch {
-      // Preserve the invocation error when the response has no JSON body.
+  if (musician.user_id) {
+    const fnRes = await supabase.functions.invoke("admin-manage-user", {
+      body: { action: "delete", organization_id: organizationId, user_id: musician.user_id, anonymize },
+    });
+    if (!fnRes.error) return;
+  } else if (!rpcMissing) {
+    const directDel = await supabase.from("musicians").delete().eq("organization_id", organizationId).eq("id", musician.id);
+    if (!directDel.error) {
+      await logAuditEvent({
+        organizationId,
+        userId: options.actorUserId ?? null,
+        action: "DELETE",
+        entityType: "musician",
+        entityId: musician.id,
+        previousValue: { name: fullName, anonymize },
+      });
+      return;
     }
   }
-  throw new Error(message);
+
+  // 2. Guaranteed fallback when historical FK constraints exist and Edge Function / RPC aren't upgraded yet:
+  // Clean up future operational assignments & availability, revoke access, and archive cleanly so musician disappears
+  // from active directory without ever losing financial/attendance/event history.
+  const today = new Date().toISOString().slice(0, 10);
+  const { data: futureRehearsals } = await supabase
+    .from("rehearsals")
+    .select("id")
+    .eq("organization_id", organizationId)
+    .gte("rehearsal_date", today);
+  const futureRehearsalIds = (futureRehearsals ?? []).map((r) => r.id);
+
+  if (futureRehearsalIds.length) {
+    await supabase
+      .from("rehearsal_musicians")
+      .delete()
+      .eq("musician_id", musician.id)
+      .in("rehearsal_id", futureRehearsalIds);
+  }
+
+  await supabase.from("availability").delete().eq("musician_id", musician.id);
+  await supabase
+    .from("music_task_assignees")
+    .delete()
+    .eq("musician_id", musician.id)
+    .eq("status", "PENDIENTE");
+
+  if (musician.user_id) {
+    await supabase
+      .from("organization_memberships")
+      .update({ approval_status: "REJECTED" })
+      .eq("organization_id", organizationId)
+      .eq("user_id", musician.user_id);
+  }
+
+  // Attempt hard delete first (succeeds if there are no remaining historical references)
+  const hardDelete = await supabase.from("musicians").delete().eq("organization_id", organizationId).eq("id", musician.id);
+  if (hardDelete.error) {
+    const updatePayload: Record<string, unknown> = {
+      status: "INACTIVO",
+      current_availability_status: "NO DISPONIBLE",
+      observations: `${DELETED_TAG} Eliminado el ${new Date().toLocaleDateString("es-CO")}${anonymize ? " (anonimizado)" : ""}`,
+      updated_at: new Date().toISOString(),
+    };
+    if (anonymize) {
+      updatePayload.first_name = "Músico";
+      updatePayload.last_name = "Retirado";
+      updatePayload.email = null;
+      updatePayload.phone = null;
+      updatePayload.whatsapp = null;
+      updatePayload.document_number = null;
+      updatePayload.address = null;
+      updatePayload.emergency_contact_name = null;
+      updatePayload.emergency_contact_phone = null;
+      updatePayload.photo_url = null;
+    }
+    const { error: archiveErr } = await supabase
+      .from("musicians")
+      .update(updatePayload)
+      .eq("organization_id", organizationId)
+      .eq("id", musician.id);
+    if (archiveErr) throw archiveErr;
+  }
+
+  await logAuditEvent({
+    organizationId,
+    userId: options.actorUserId ?? null,
+    action: "DELETE",
+    entityType: "musician",
+    entityId: musician.id,
+    previousValue: { name: fullName, anonymize },
+    newValue: { mode: "safe_historical_archive" },
+  });
 }
 
 export async function saveAvailability(entry: Omit<Availability, "id">, id?: string) {

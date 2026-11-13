@@ -1,21 +1,211 @@
+import { useEffect, useMemo, useState } from "react";
 import { BookOpenText, Clock3, Disc3, ExternalLink, FileMusic, Gauge, Headphones, Music2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import type { Song } from "./types";
+import { listScoresForSong } from "./scoresService";
+import type { Song, SongScore } from "./types";
 
-const safeUrl = (value: string | null) => value && /^https?:\/\//i.test(value) ? value : null;
+const safeUrl = (value: string | null) => (value && /^https?:\/\//i.test(value) ? value : null);
 
 export function SongDetailDialog({ song, open, onOpenChange }: { song: Song | null; open: boolean; onOpenChange: (open: boolean) => void }) {
-  if (!song) return null;
-  const scoreUrl = safeUrl(song.score_url);
-  const audioUrl = safeUrl(song.audio_url);
-  const links = [{ label: "YouTube", url: safeUrl(song.youtube_url) }, { label: "Spotify", url: safeUrl(song.spotify_url) }].filter((item): item is { label: string; url: string } => Boolean(item.url));
+  const [scores, setScores] = useState<SongScore[]>([]);
+  const [categoryFilter, setCategoryFilter] = useState("ALL");
 
-  return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="max-h-[94vh] overflow-y-auto rounded-[2rem] p-0 sm:max-w-4xl"><div className="bg-[#24163d] p-5 text-white sm:p-7"><DialogHeader><div className="flex items-start gap-4"><span className="grid size-14 shrink-0 place-items-center rounded-2xl bg-white/10 text-violet-200"><Disc3 className="size-6" /></span><div className="min-w-0"><DialogTitle className="text-2xl font-black text-white sm:text-3xl">{song.name}</DialogTitle><DialogDescription className="mt-1 text-white/70">{song.original_artist || song.composer || "Canción del repertorio"}</DialogDescription></div></div></DialogHeader><div className="mt-6 flex flex-wrap gap-2"><Badge className="rounded-lg bg-white/10 text-white hover:bg-white/10">{song.status}</Badge>{song.genre && <Badge className="rounded-lg bg-violet-300/15 text-violet-100 hover:bg-violet-300/15">{song.genre.name}</Badge>}<Badge className="rounded-lg bg-white/10 text-white hover:bg-white/10">{song.level}</Badge></div><div className="mt-5 grid grid-cols-3 gap-3 border-t border-white/15 pt-5 text-sm text-white/75"><Meta icon={Music2} label={song.musical_key || "Sin tono"} /><Meta icon={Gauge} label={song.bpm ? `${song.bpm} BPM` : "Sin BPM"} /><Meta icon={Clock3} label={formatTime(song.duration_seconds)} /></div></div><div className="p-5 sm:p-7">{(links.length > 0 || audioUrl) && <section className="mb-6 rounded-2xl border bg-muted/30 p-4"><div className="flex flex-wrap items-center gap-3">{links.map((link) => <Button key={link.label} asChild variant="outline" size="sm" className="rounded-xl"><a href={link.url} target="_blank" rel="noreferrer">{link.label}<ExternalLink className="ml-2 size-3.5" /></a></Button>)}{audioUrl && <span className="flex items-center gap-2 text-xs font-bold text-muted-foreground"><Headphones className="size-4" />Audio de referencia</span>}</div>{audioUrl && <audio controls preload="none" src={audioUrl} className="mt-4 h-11 w-full" />}</section>}<Tabs key={song.id} defaultValue={song.lyrics ? "lyrics" : "score"} className="space-y-5"><TabsList className="h-auto w-full rounded-2xl p-1.5 sm:w-fit"><TabsTrigger value="lyrics" className="flex-1 rounded-xl sm:flex-none"><BookOpenText className="mr-2 size-4" />Letra</TabsTrigger><TabsTrigger value="score" className="flex-1 rounded-xl sm:flex-none"><FileMusic className="mr-2 size-4" />Partitura</TabsTrigger></TabsList><TabsContent value="lyrics"><section className="rounded-3xl border bg-card p-5 sm:p-7">{song.lyrics ? <p className="whitespace-pre-wrap font-serif text-base leading-8 text-foreground sm:text-lg">{song.lyrics}</p> : <EmptyResource icon={BookOpenText} title="Letra no disponible" description="La dirección musical aún no ha agregado la letra de esta canción." />}</section></TabsContent><TabsContent value="score"><section className="overflow-hidden rounded-3xl border bg-card">{scoreUrl ? <><div className="flex items-center justify-between gap-3 p-5 sm:p-6"><div><p className="font-black">Partitura disponible</p><p className="text-xs text-muted-foreground">El material está alojado externamente para no consumir almacenamiento del portal.</p></div><Button asChild className="shrink-0 rounded-xl"><a href={scoreUrl} target="_blank" rel="noreferrer">Abrir partitura<ExternalLink className="ml-2 size-3.5" /></a></Button></div></> : <div className="p-5 sm:p-7"><EmptyResource icon={FileMusic} title="Partitura no disponible" description="Esta canción todavía no tiene un enlace de partitura." /></div>}</section></TabsContent></Tabs>{song.observations && <section className="mt-6 rounded-2xl bg-amber-500/10 p-4"><p className="text-xs font-black uppercase tracking-wider text-amber-700 dark:text-amber-300">Indicaciones de dirección</p><p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed">{song.observations}</p></section>}</div></DialogContent></Dialog>;
+  useEffect(() => {
+    if (!open || !song) return;
+    setCategoryFilter("ALL");
+    if (song.song_scores?.length) {
+      setScores(song.song_scores);
+    } else if (song.organization_id) {
+      void listScoresForSong(song.organization_id, song.id).then(setScores).catch(() => setScores([]));
+    } else {
+      setScores([]);
+    }
+  }, [open, song]);
+
+  const legacyScoreUrl = song ? safeUrl(song.score_url) : null;
+
+  const allScores = useMemo(() => {
+    if (scores.length) return scores;
+    if (song && legacyScoreUrl) {
+      return [
+        {
+          id: "legacy",
+          organization_id: song.organization_id,
+          song_id: song.id,
+          category: "General",
+          instrument: "Partitura general",
+          title: `Partitura · ${song.name}`,
+          score_url: legacyScoreUrl,
+          notes: null,
+          version: null,
+          sort_order: 0,
+        } satisfies SongScore,
+      ];
+    }
+    return [];
+  }, [scores, song, legacyScoreUrl]);
+
+  const categories = useMemo(
+    () => Array.from(new Set(allScores.map((s) => s.category))),
+    [allScores],
+  );
+
+  const visibleScores = useMemo(
+    () => (categoryFilter === "ALL" ? allScores : allScores.filter((s) => s.category === categoryFilter)),
+    [allScores, categoryFilter],
+  );
+
+  if (!song) return null;
+
+  const audioUrl = safeUrl(song.audio_url);
+  const links = [
+    { label: "YouTube", url: safeUrl(song.youtube_url) },
+    { label: "Spotify", url: safeUrl(song.spotify_url) },
+  ].filter((item): item is { label: string; url: string } => Boolean(item.url));
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[94vh] overflow-y-auto rounded-[2rem] p-0 sm:max-w-4xl">
+        <div className="bg-[#24163d] p-5 text-white sm:p-7">
+          <DialogHeader>
+            <div className="flex items-start gap-4">
+              <span className="grid size-14 shrink-0 place-items-center rounded-2xl bg-white/10 text-violet-200"><Disc3 className="size-6" /></span>
+              <div className="min-w-0">
+                <DialogTitle className="text-2xl font-black text-white sm:text-3xl">{song.name}</DialogTitle>
+                <DialogDescription className="mt-1 text-white/70">{song.original_artist || song.composer || "Canción del repertorio"}</DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+          <div className="mt-6 flex flex-wrap gap-2">
+            <Badge className="rounded-lg bg-white/10 text-white hover:bg-white/10">{song.status}</Badge>
+            {song.genre && <Badge className="rounded-lg bg-violet-300/15 text-violet-100 hover:bg-violet-300/15">{song.genre.name}</Badge>}
+            <Badge className="rounded-lg bg-white/10 text-white hover:bg-white/10">{song.level}</Badge>
+          </div>
+          <div className="mt-5 grid grid-cols-3 gap-3 border-t border-white/15 pt-5 text-sm text-white/75">
+            <Meta icon={Music2} label={song.musical_key || "Sin tono"} />
+            <Meta icon={Gauge} label={song.bpm ? `${song.bpm} BPM` : "Sin BPM"} />
+            <Meta icon={Clock3} label={formatTime(song.duration_seconds)} />
+          </div>
+        </div>
+
+        <div className="p-5 sm:p-7">
+          {(links.length > 0 || audioUrl) && (
+            <section className="mb-6 rounded-2xl border bg-muted/30 p-4">
+              <div className="flex flex-wrap items-center gap-3">
+                {links.map((link) => (
+                  <Button key={link.label} asChild variant="outline" size="sm" className="rounded-xl">
+                    <a href={link.url} target="_blank" rel="noreferrer">{link.label}<ExternalLink className="ml-2 size-3.5" /></a>
+                  </Button>
+                ))}
+                {audioUrl && <span className="flex items-center gap-2 text-xs font-bold text-muted-foreground"><Headphones className="size-4" />Audio de referencia</span>}
+              </div>
+              {audioUrl && <audio controls preload="none" src={audioUrl} className="mt-4 h-11 w-full" />}
+            </section>
+          )}
+
+          <Tabs key={song.id} defaultValue={song.lyrics ? "lyrics" : "score"} className="space-y-5">
+            <TabsList className="h-auto w-full rounded-2xl p-1.5 sm:w-fit">
+              <TabsTrigger value="lyrics" className="flex-1 rounded-xl sm:flex-none"><BookOpenText className="mr-2 size-4" />Letra</TabsTrigger>
+              <TabsTrigger value="score" className="flex-1 rounded-xl sm:flex-none"><FileMusic className="mr-2 size-4" />Partituras ({allScores.length})</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="lyrics">
+              <section className="rounded-3xl border bg-card p-5 sm:p-7">
+                {song.lyrics ? (
+                  <p className="whitespace-pre-wrap font-serif text-base leading-8 text-foreground sm:text-lg">{song.lyrics}</p>
+                ) : (
+                  <EmptyResource icon={BookOpenText} title="Letra no disponible" description="La dirección musical aún no ha agregado la letra de esta canción." />
+                )}
+              </section>
+            </TabsContent>
+
+            <TabsContent value="score" className="space-y-4">
+              {allScores.length > 0 ? (
+                <>
+                  {categories.length > 1 && (
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={categoryFilter === "ALL" ? "default" : "outline"}
+                        onClick={() => setCategoryFilter("ALL")}
+                        className="rounded-xl"
+                      >
+                        Todas ({allScores.length})
+                      </Button>
+                      {categories.map((cat) => (
+                        <Button
+                          key={cat}
+                          type="button"
+                          size="sm"
+                          variant={categoryFilter === cat ? "default" : "outline"}
+                          onClick={() => setCategoryFilter(cat)}
+                          className="rounded-xl"
+                        >
+                          {cat}
+                        </Button>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="space-y-3">
+                    {visibleScores.map((item) => (
+                      <section key={item.id} className="flex flex-col justify-between gap-3 rounded-2xl border bg-card p-4 sm:flex-row sm:items-center sm:p-5">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge className="rounded-lg bg-primary/10 text-primary hover:bg-primary/10">{item.category}</Badge>
+                            {item.instrument && <Badge variant="outline" className="rounded-lg">{item.instrument}</Badge>}
+                            {item.version && <Badge variant="secondary" className="rounded-lg text-[10px]">{item.version}</Badge>}
+                          </div>
+                          <p className="mt-2 font-black">{item.title}</p>
+                          {item.notes && <p className="mt-1 text-xs text-muted-foreground">{item.notes}</p>}
+                        </div>
+                        <Button asChild className="shrink-0 rounded-xl font-bold">
+                          <a href={item.score_url} target="_blank" rel="noreferrer">
+                            Abrir partitura <ExternalLink className="ml-2 size-3.5" />
+                          </a>
+                        </Button>
+                      </section>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div className="rounded-3xl border bg-card p-5 sm:p-7">
+                  <EmptyResource icon={FileMusic} title="Partitura no disponible" description="Esta canción todavía no tiene enlaces de partitura registrados." />
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
+
+          {song.observations && (
+            <section className="mt-6 rounded-2xl bg-amber-500/10 p-4">
+              <p className="text-xs font-black uppercase tracking-wider text-amber-700 dark:text-amber-300">Indicaciones de dirección</p>
+              <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed">{song.observations}</p>
+            </section>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
-function Meta({ icon: Icon, label }: { icon: typeof Music2; label: string }) { return <span className="flex items-center gap-2"><Icon className="size-4 text-violet-200" />{label}</span>; }
-function EmptyResource({ icon: Icon, title, description }: { icon: typeof BookOpenText; title: string; description: string }) { return <div className="grid min-h-56 place-items-center text-center"><div><span className="mx-auto grid size-14 place-items-center rounded-2xl bg-primary/10 text-primary"><Icon className="size-6" /></span><h3 className="mt-4 font-black">{title}</h3><p className="mt-2 max-w-sm text-sm text-muted-foreground">{description}</p></div></div>; }
-function formatTime(seconds: number) { return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`; }
+function Meta({ icon: Icon, label }: { icon: typeof Music2; label: string }) {
+  return <span className="flex items-center gap-2"><Icon className="size-4 text-violet-200" />{label}</span>;
+}
+function EmptyResource({ icon: Icon, title, description }: { icon: typeof BookOpenText; title: string; description: string }) {
+  return (
+    <div className="grid min-h-56 place-items-center text-center">
+      <div>
+        <span className="mx-auto grid size-14 place-items-center rounded-2xl bg-primary/10 text-primary"><Icon className="size-6" /></span>
+        <h3 className="mt-4 font-black">{title}</h3>
+        <p className="mt-2 max-w-sm text-sm text-muted-foreground">{description}</p>
+      </div>
+    </div>
+  );
+}
+function formatTime(seconds: number) {
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}

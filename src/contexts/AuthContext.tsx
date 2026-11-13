@@ -2,6 +2,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { hexContrastForeground, hexToHslValue } from "@/lib/color";
+import { readOrgFeatureFlag } from "@/lib/orgStore";
+import { resolveEffectiveExtraPermissions, type ExtraRolePermissionsMap } from "@/lib/permissions";
 import type { AppUser, Membership, OrganizationIdentity, RoleCode } from "@/types/auth";
 
 type PermissionValue = { key: string } | { key: string }[] | null;
@@ -52,11 +54,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    const [profileResult, membershipResult] = await Promise.all([
+    const [profileResult, membershipResult, musicianResult] = await Promise.all([
       supabase.from("profiles").select("first_name,last_name,avatar_url,email,username,profile_completed_at").eq("id", activeSession.user.id).maybeSingle(),
       supabase
         .from("organization_memberships")
         .select("id,organization_id,approval_status,role_id,role:roles(code,name,role_permissions(permission:permissions(key))),organization:organizations(id,name,logo_url,cover_url,primary_color,currency_code,timezone)")
+        .eq("user_id", activeSession.user.id)
+        .maybeSingle(),
+      supabase
+        .from("musicians")
+        .select("id,phone,address,eps,emergency_contact_name,emergency_contact_phone")
         .eq("user_id", activeSession.user.id)
         .maybeSingle(),
     ]);
@@ -66,6 +73,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     const profile = profileResult.data;
+    const musicianRow = musicianResult.data;
+    const metaCompletedAt = activeSession.user.user_metadata?.profile_completed_at as string | undefined;
+    const musicianFieldsFilled = Boolean(
+      musicianRow &&
+      (musicianRow.phone?.trim().length ?? 0) >= 2 &&
+      (musicianRow.address?.trim().length ?? 0) >= 2 &&
+      (musicianRow.eps?.trim().length ?? 0) >= 2 &&
+      (musicianRow.emergency_contact_name?.trim().length ?? 0) >= 2 &&
+      (musicianRow.emergency_contact_phone?.trim().length ?? 0) >= 2
+    );
+    const isProfileComplete = Boolean(profile?.profile_completed_at || metaCompletedAt || musicianFieldsFilled);
+
+    if (isProfileComplete && !profile?.profile_completed_at) {
+      void supabase
+        .from("profiles")
+        .update({ profile_completed_at: metaCompletedAt || new Date().toISOString(), updated_at: new Date().toISOString() })
+        .eq("id", activeSession.user.id);
+    }
+
     setUser({
       id: activeSession.user.id,
       email: profile?.email ?? activeSession.user.email ?? "",
@@ -73,7 +99,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       firstName: profile?.first_name ?? activeSession.user.user_metadata?.first_name ?? "Usuario",
       lastName: profile?.last_name ?? activeSession.user.user_metadata?.last_name ?? "",
       avatarUrl: profile?.avatar_url,
-      profileComplete: Boolean(profile?.profile_completed_at),
+      profileComplete: isProfileComplete,
+      mustChangePassword: Boolean(activeSession.user.user_metadata?.must_change_password),
     });
 
     const rawMembership = membershipResult.data as unknown as MembershipRow | null;
@@ -86,10 +113,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const rawRole = Array.isArray(rawMembership.role) ? rawMembership.role[0] : rawMembership.role;
     const rawOrganization = Array.isArray(rawMembership.organization) ? rawMembership.organization[0] : rawMembership.organization;
-    const permissions = rawRole?.role_permissions.flatMap((item) => {
+    const dbPermissions = rawRole?.role_permissions.flatMap((item) => {
       const permission = Array.isArray(item.permission) ? item.permission[0] : item.permission;
       return permission?.key ? [permission.key] : [];
     }) ?? [];
+    const extraPermMap = await readOrgFeatureFlag<ExtraRolePermissionsMap>(
+      rawMembership.organization_id,
+      "extra_role_permissions",
+      {},
+    );
+    const extraPerms = resolveEffectiveExtraPermissions(rawRole?.code, extraPermMap);
+    const permissions = Array.from(new Set([...dbPermissions, ...extraPerms]));
     setMembership({
       id: rawMembership.id,
       organizationId: rawMembership.organization_id,

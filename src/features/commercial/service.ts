@@ -1,27 +1,423 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { AvailabilityResult, Client, CommercialEvent, PublicQuote, Quote, QuoteItem, QuoteRequest, QuoteRequestForm } from "./types";
-const requestSelect="*,client:clients(*),quotes(*,quote_versions(*,quote_items(*)),quote_change_requests(*),quote_acceptances(*,quote_version:quote_versions(version_number))),event_availability(*),commercial_timeline(*)";
-export async function submitQuoteRequest(values:QuoteRequestForm){const{data,error}=await supabase.rpc("submit_quote_request",{request_data:{...values,attendee_count:Number(values.attendee_count),duration_minutes:Number(values.duration_minutes==="CUSTOM"?values.custom_duration_minutes:values.duration_minutes)}});if(error)throw error;return data as {id:string;request_number:string;availability_status:AvailabilityResult};}
-export async function listQuoteRequests(organizationId:string){const{data,error}=await supabase.from("quote_requests").select("*,client:clients(*),quotes(id,quote_number,status,current_version,public_token,valid_until,sent_at,opened_at)").eq("organization_id",organizationId).order("created_at",{ascending:false});if(error)throw error;return(data??[]) as unknown as QuoteRequest[];}
-export async function deleteQuoteRequest(id:string){const{error}=await supabase.rpc("admin_delete_quote_request",{target_request_id:id});if(error)throw error;}
-export async function getQuoteRequest(organizationId:string,id:string){const{data,error}=await supabase.from("quote_requests").select(requestSelect).eq("organization_id",organizationId).eq("id",id).single();if(error)throw error;const request=data as unknown as QuoteRequest;return{...request,quotes:(request.quotes??[]).map(quote=>({...quote,quote_versions:(quote.quote_versions??[]).map(version=>({...version,quote_items:version.quote_items??[]})),quote_change_requests:quote.quote_change_requests??[],quote_acceptances:quote.quote_acceptances??[]})),event_availability:request.event_availability??[],commercial_timeline:request.commercial_timeline??[]};}
-export async function listClients(organizationId:string){const{data,error}=await supabase.from("clients").select("*,quote_requests(id,status),quotes(id,status)").eq("organization_id",organizationId).order("updated_at",{ascending:false});if(error)throw error;return(data??[]) as unknown as Client[];}
-export async function saveClient(organizationId:string,values:Pick<Client,"client_type"|"full_name"|"company"|"nit"|"phone"|"whatsapp"|"email"|"city">,id?:string){const payload={organization_id:organizationId,client_type:values.client_type,full_name:values.full_name.trim(),company:values.company?.trim()||null,nit:values.nit?.trim()||null,phone:values.phone.trim(),whatsapp:values.whatsapp?.trim()||null,email:values.email.trim().toLowerCase(),city:values.city.trim(),updated_at:new Date().toISOString()};const query=id?supabase.from("clients").update(payload).eq("id",id).eq("organization_id",organizationId):supabase.from("clients").insert(payload);const{error}=await query;if(error)throw error;}
-export async function deleteClient(id:string){const{error}=await supabase.rpc("delete_client",{target_client_id:id});if(error)throw error;}
-export async function listQuotes(organizationId:string){const{data,error}=await supabase.from("quotes").select("*,client:clients(*),quote_request:quote_requests(event_name,event_date,event_city),quote_versions(*,quote_items(*))").eq("organization_id",organizationId).order("updated_at",{ascending:false});if(error)throw error;return(data??[]) as unknown as Array<Quote&{client:Client;quote_request:{event_name:string;event_date:string;event_city:string}}>;}
-export async function createQuoteFromRequest(id:string){const{data,error}=await supabase.rpc("create_quote_from_request",{target_request_id:id});if(error)throw error;return data as string;}
-export async function saveQuoteVersion(quoteId:string,items:QuoteItem[],depositPercent:number,validityDays:number,terms:Record<string,string>,observations:string){const{data,error}=await supabase.rpc("save_quote_version",{target_quote_id:quoteId,items_data:items,deposit_percentage:depositPercent,validity_days:validityDays,terms_data:terms,version_observations:observations});if(error)throw error;return data as string;}
-export async function sendQuote(quoteId:string){const{data,error}=await supabase.rpc("send_quote_to_client",{target_quote_id:quoteId});if(error)throw error;return data as string;}
-export async function setRequestAvailability(requestId:string,status:AvailabilityResult,notes:string,snapshot:Record<string,unknown>){const{error}=await supabase.rpc("set_request_availability",{target_request_id:requestId,availability_value:status,availability_notes_value:notes,availability_snapshot:snapshot});if(error)throw error;}
-export async function getPublicQuote(token:string){const{data,error}=await supabase.rpc("get_public_quote",{access_token:token});if(error)throw error;if(!data)return null;const quote=data as unknown as PublicQuote;return{...quote,event:quote.event??{},items:Array.isArray(quote.items)?quote.items:[],terms:quote.terms&&typeof quote.terms==="object"?quote.terms:{},summary:quote.summary??{subtotal:0,discount:0,total:0,deposit_percent:0,deposit_amount:0,balance_amount:0}};}
-export async function respondToQuote(token:string,action:"ACCEPT"|"CHANGES"|"REJECT",name:string,email:string,message="",confirmation=false){const{error}=await supabase.rpc("respond_to_public_quote",{access_token:token,response_action:action,respondent_name:name,respondent_email:email,change_message:message||null,acceptance_confirmation:confirmation});if(error)throw error;}
-export async function createEventFromQuote(quoteId:string){const{data,error}=await supabase.rpc("create_event_from_quote",{target_quote_id:quoteId});if(error)throw error;return data as string;}
-export async function listEvents(organizationId:string){const{data,error}=await supabase.from("events").select("*,client:clients(*),event_musicians(*,musician:musicians(id,first_name,last_name,specialty)),financial_transactions(*),event_riders(*)").eq("organization_id",organizationId).order("event_date");if(error)throw error;return((data??[]) as unknown as CommercialEvent[]).map(event=>({...event,event_musicians:event.event_musicians??[],financial_transactions:event.financial_transactions??[],event_riders:event.event_riders??[]}));}
-export async function listEventCreationClients(organizationId:string){const{data,error}=await supabase.rpc("get_event_creation_clients",{target_organization_id:organizationId});if(error)throw error;return(data??[]) as Array<{id:string;full_name:string;company:string|null;email:string}>;}
-export async function createStandaloneEvent(eventData:Record<string,string>){const{data,error}=await supabase.rpc("create_standalone_event",{event_data:eventData});if(error)throw error;return data as string;}
-export async function assignEventMusician(organizationId:string,eventId:string,musicianId:string){const{error}=await supabase.from("event_musicians").upsert({organization_id:organizationId,event_id:eventId,musician_id:musicianId},{onConflict:"event_id,musician_id"});if(error)throw error;}
-export async function updateEventMusicianStatus(organizationId:string,assignmentId:string,status:"PENDIENTE"|"CONFIRMADO"|"NO DISPONIBLE"){const{error}=await supabase.from("event_musicians").update({status}).eq("id",assignmentId).eq("organization_id",organizationId);if(error)throw error;}
-export async function generateEventRider(eventId:string){const{data,error}=await supabase.rpc("generate_event_rider",{target_event_id:eventId});if(error)throw error;return data as string;}
-export async function deleteEvent(eventId:string){const{error}=await supabase.rpc("delete_event",{target_event_id:eventId});if(error)throw error;}
-export async function updateEventStatus(event:CommercialEvent,status:CommercialEvent["status"],userId:string){const now=new Date().toISOString();const{error}=await supabase.from("events").update({status,confirmed_at:status==="CONFIRMADO"?(event.confirmed_at??now):event.confirmed_at,updated_at:now}).eq("id",event.id).eq("organization_id",event.organization_id);if(error)throw error;const eventCopy:Record<CommercialEvent["status"],{action:string;description:string}>={PENDIENTE:{action:"EVENT_PENDING",description:"Evento marcado como pendiente"},CONFIRMADO:{action:"EVENT_CONFIRMED",description:"Evento confirmado por administración"},"EN CURSO":{action:"EVENT_STARTED",description:"Evento marcado en curso"},REALIZADO:{action:"EVENT_COMPLETED",description:"Evento realizado"},CANCELADO:{action:"EVENT_CANCELLED",description:"Evento cancelado"},CERRADO:{action:"EVENT_CLOSED",description:"Evento cerrado"}};const copy=eventCopy[status];const{error:timelineError}=await supabase.from("commercial_timeline").insert({organization_id:event.organization_id,quote_request_id:event.quote_request_id,quote_id:event.quote_id,event_id:event.id,action:copy.action,description:copy.description,actor_type:"USER",actor_user_id:userId,metadata:{previous_status:event.status,new_status:status}});if(timelineError)throw timelineError;}
-export async function markTransactionPaid(event:CommercialEvent,transactionId:string,userId:string){const transaction=event.financial_transactions.find(item=>item.id===transactionId);if(!transaction)throw new Error("Transacción no encontrada");const paidAt=new Date().toISOString();const{error}=await supabase.from("financial_transactions").update({status:"PAGADO",paid_at:paidAt,updated_at:paidAt}).eq("id",transactionId).eq("organization_id",event.organization_id);if(error)throw error;const isDeposit=transaction.concept==="ANTICIPO";const{error:timelineError}=await supabase.from("commercial_timeline").insert({organization_id:event.organization_id,quote_request_id:event.quote_request_id,quote_id:event.quote_id,event_id:event.id,action:isDeposit?"DEPOSIT_RECEIVED":"BALANCE_RECEIVED",description:isDeposit?"Anticipo recibido":"Saldo recibido",actor_type:"USER",actor_user_id:userId,metadata:{transaction_id:transactionId,amount:transaction.amount,concept:transaction.concept}});if(timelineError)throw timelineError;}
+
+const requestSelect =
+  "*,client:clients(*),quotes(*,quote_versions(*,quote_items(*)),quote_change_requests(*),quote_acceptances(*,quote_version:quote_versions(version_number))),event_availability(*),commercial_timeline(*)";
+
+export type ManualMusicianStatus = "CONFIRMADO" | "PENDIENTE" | "NO DISPONIBLE" | "POR CONFIRMAR" | "NO REQUERIDO";
+
+export interface ExternalReplacement {
+  id: string;
+  name: string;
+  instrument: string;
+  phone?: string;
+  notes?: string;
+  status?: ManualMusicianStatus;
+}
+
+export interface AvailabilityHistoryEntry {
+  at: string;
+  by: string;
+  summary: string;
+}
+
+export async function submitQuoteRequest(values: QuoteRequestForm) {
+  const { data, error } = await supabase.rpc("submit_quote_request", {
+    request_data: {
+      ...values,
+      attendee_count: Number(values.attendee_count),
+      duration_minutes: Number(values.duration_minutes === "CUSTOM" ? values.custom_duration_minutes : values.duration_minutes),
+    },
+  });
+  if (error) throw error;
+  return data as { id: string; request_number: string; availability_status: AvailabilityResult };
+}
+
+export async function listQuoteRequests(organizationId: string) {
+  const { data, error } = await supabase
+    .from("quote_requests")
+    .select("*,client:clients(*),quotes(id,quote_number,status,current_version,public_token,valid_until,sent_at,opened_at)")
+    .eq("organization_id", organizationId)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as unknown as QuoteRequest[];
+}
+
+export async function deleteQuoteRequest(id: string) {
+  const { error } = await supabase.rpc("admin_delete_quote_request", { target_request_id: id });
+  if (error) throw error;
+}
+
+export async function getQuoteRequest(organizationId: string, id: string) {
+  const { data, error } = await supabase
+    .from("quote_requests")
+    .select(requestSelect)
+    .eq("organization_id", organizationId)
+    .eq("id", id)
+    .single();
+  if (error) throw error;
+  const request = data as unknown as QuoteRequest;
+  return {
+    ...request,
+    quotes: (request.quotes ?? []).map((quote) => ({
+      ...quote,
+      quote_versions: (quote.quote_versions ?? []).map((version) => ({
+        ...version,
+        quote_items: version.quote_items ?? [],
+      })),
+      quote_change_requests: quote.quote_change_requests ?? [],
+      quote_acceptances: quote.quote_acceptances ?? [],
+    })),
+    event_availability: request.event_availability ?? [],
+    commercial_timeline: request.commercial_timeline ?? [],
+  };
+}
+
+export async function listClients(organizationId: string) {
+  const { data, error } = await supabase
+    .from("clients")
+    .select("*,quote_requests(id,status),quotes(id,status)")
+    .eq("organization_id", organizationId)
+    .order("updated_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as unknown as Client[];
+}
+
+export async function saveClient(
+  organizationId: string,
+  values: Pick<Client, "client_type" | "full_name" | "company" | "nit" | "phone" | "whatsapp" | "email" | "city">,
+  id?: string,
+) {
+  const payload = {
+    organization_id: organizationId,
+    client_type: values.client_type,
+    full_name: values.full_name.trim(),
+    company: values.company?.trim() || null,
+    nit: values.nit?.trim() || null,
+    phone: values.phone.trim(),
+    whatsapp: values.whatsapp?.trim() || null,
+    email: values.email.trim().toLowerCase(),
+    city: values.city.trim(),
+    updated_at: new Date().toISOString(),
+  };
+  const query = id
+    ? supabase.from("clients").update(payload).eq("id", id).eq("organization_id", organizationId)
+    : supabase.from("clients").insert(payload);
+  const { error } = await query;
+  if (error) throw error;
+}
+
+export async function deleteClient(id: string) {
+  const { error } = await supabase.rpc("delete_client", { target_client_id: id });
+  if (error) throw error;
+}
+
+export async function listQuotes(organizationId: string) {
+  const { data, error } = await supabase
+    .from("quotes")
+    .select("*,client:clients(*),quote_request:quote_requests(event_name,event_date,event_city),quote_versions(*,quote_items(*))")
+    .eq("organization_id", organizationId)
+    .order("updated_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as unknown as Array<Quote & { client: Client; quote_request: { event_name: string; event_date: string; event_city: string } }>;
+}
+
+export async function createQuoteFromRequest(id: string) {
+  const { data, error } = await supabase.rpc("create_quote_from_request", { target_request_id: id });
+  if (error) throw error;
+  return data as string;
+}
+
+export async function saveQuoteVersion(
+  quoteId: string,
+  items: QuoteItem[],
+  depositPercent: number,
+  validityDays: number,
+  terms: Record<string, string>,
+  observations: string,
+) {
+  const { data, error } = await supabase.rpc("save_quote_version", {
+    target_quote_id: quoteId,
+    items_data: items,
+    deposit_percentage: depositPercent,
+    validity_days: validityDays,
+    terms_data: terms,
+    version_observations: observations,
+  });
+  if (error) throw error;
+  return data as string;
+}
+
+export async function sendQuote(quoteId: string) {
+  const { data, error } = await supabase.rpc("send_quote_to_client", { target_quote_id: quoteId });
+  if (error) throw error;
+  return data as string;
+}
+
+export async function setRequestAvailability(
+  requestId: string,
+  status: AvailabilityResult,
+  notes: string,
+  snapshot: Record<string, unknown>,
+) {
+  const { error } = await supabase.rpc("set_request_availability", {
+    target_request_id: requestId,
+    availability_value: status,
+    availability_notes_value: notes,
+    availability_snapshot: snapshot,
+  });
+  if (error) throw error;
+}
+
+export async function saveManualRequestAvailability(input: {
+  request: QuoteRequest;
+  userId: string;
+  userName: string;
+  availabilityStatus: AvailabilityResult;
+  notes: string;
+  snapshot: Record<string, unknown>;
+  changeSummary: string;
+}) {
+  const earlyStatuses = new Set(["NUEVA", "EN REVISIÓN", "DISPONIBILIDAD CONFIRMADA", "DISPONIBILIDAD NO DISPONIBLE"]);
+  const now = new Date().toISOString();
+
+  if (earlyStatuses.has(input.request.status)) {
+    await setRequestAvailability(input.request.id, input.availabilityStatus, input.notes, input.snapshot);
+    return;
+  }
+
+  // Always allow updating availability even after quote sent, client accepted, or event created without reverting quote status
+  const { error: reqErr } = await supabase
+    .from("quote_requests")
+    .update({
+      availability_status: input.availabilityStatus,
+      availability_notes: input.notes.trim() || null,
+      updated_at: now,
+    })
+    .eq("id", input.request.id);
+  if (reqErr) throw reqErr;
+
+  const existingAvail = input.request.event_availability?.[0];
+  if (existingAvail?.id) {
+    const { error: avErr } = await supabase
+      .from("event_availability")
+      .update({
+        status: input.availabilityStatus,
+        notes: input.notes.trim() || null,
+        snapshot: input.snapshot,
+        checked_at: now,
+        checked_by: input.userId,
+      })
+      .eq("id", existingAvail.id);
+    if (avErr) throw avErr;
+  } else {
+    const { error: avInsErr } = await supabase.from("event_availability").insert({
+      organization_id: input.request.organization_id,
+      quote_request_id: input.request.id,
+      status: input.availabilityStatus,
+      notes: input.notes.trim() || null,
+      snapshot: input.snapshot,
+      checked_at: now,
+      checked_by: input.userId,
+    });
+    if (avInsErr) throw avInsErr;
+  }
+
+  // Sync external replacements onto any linked event if already created
+  const { data: linkedEvent } = await supabase
+    .from("events")
+    .select("id,conditions")
+    .eq("quote_request_id", input.request.id)
+    .maybeSingle();
+
+  if (linkedEvent?.id) {
+    const prevCond = (linkedEvent.conditions && typeof linkedEvent.conditions === "object"
+      ? linkedEvent.conditions
+      : {}) as Record<string, unknown>;
+    await supabase
+      .from("events")
+      .update({
+        conditions: {
+          ...prevCond,
+          external_replacements: input.snapshot.external_replacements ?? [],
+        },
+        updated_at: now,
+      })
+      .eq("id", linkedEvent.id);
+  }
+
+  await supabase.from("commercial_timeline").insert({
+    organization_id: input.request.organization_id,
+    quote_request_id: input.request.id,
+    action: "AVAILABILITY_UPDATED",
+    description: `Disponibilidad de músicos actualizada por ${input.userName}: ${input.changeSummary}`,
+    actor_type: "USER",
+    actor_user_id: input.userId,
+    metadata: { status: input.availabilityStatus, summary: input.changeSummary },
+  });
+}
+
+export async function getPublicQuote(token: string) {
+  const { data, error } = await supabase.rpc("get_public_quote", { access_token: token });
+  if (error) throw error;
+  if (!data) return null;
+  const quote = data as unknown as PublicQuote;
+  return {
+    ...quote,
+    event: quote.event ?? {},
+    items: Array.isArray(quote.items) ? quote.items : [],
+    terms: quote.terms && typeof quote.terms === "object" ? quote.terms : {},
+    summary: quote.summary ?? { subtotal: 0, discount: 0, total: 0, deposit_percent: 0, deposit_amount: 0, balance_amount: 0 },
+  };
+}
+
+export async function respondToQuote(
+  token: string,
+  action: "ACCEPT" | "CHANGES" | "REJECT",
+  name: string,
+  email: string,
+  message = "",
+  confirmation = false,
+) {
+  const { error } = await supabase.rpc("respond_to_public_quote", {
+    access_token: token,
+    response_action: action,
+    respondent_name: name,
+    respondent_email: email,
+    change_message: message || null,
+    acceptance_confirmation: confirmation,
+  });
+  if (error) throw error;
+}
+
+export async function createEventFromQuote(quoteId: string) {
+  const { data, error } = await supabase.rpc("create_event_from_quote", { target_quote_id: quoteId });
+  if (error) throw error;
+  return data as string;
+}
+
+export async function listEvents(organizationId: string) {
+  const { data, error } = await supabase
+    .from("events")
+    .select("*,client:clients(*),event_musicians(*,musician:musicians(id,first_name,last_name,specialty)),financial_transactions(*),event_riders(*)")
+    .eq("organization_id", organizationId)
+    .order("event_date");
+  if (error) throw error;
+  return ((data ?? []) as unknown as CommercialEvent[]).map((event) => ({
+    ...event,
+    event_musicians: event.event_musicians ?? [],
+    financial_transactions: event.financial_transactions ?? [],
+    event_riders: event.event_riders ?? [],
+  }));
+}
+
+export async function saveEventConditions(eventId: string, conditions: Record<string, unknown>) {
+  const { error } = await supabase
+    .from("events")
+    .update({ conditions, updated_at: new Date().toISOString() })
+    .eq("id", eventId);
+  if (error) throw error;
+}
+
+export async function listEventCreationClients(organizationId: string) {
+  const { data, error } = await supabase.rpc("get_event_creation_clients", { target_organization_id: organizationId });
+  if (error) throw error;
+  return (data ?? []) as Array<{ id: string; full_name: string; company: string | null; email: string }>;
+}
+
+export async function createStandaloneEvent(eventData: Record<string, string>) {
+  const { data, error } = await supabase.rpc("create_standalone_event", { event_data: eventData });
+  if (error) throw error;
+  return data as string;
+}
+
+export async function assignEventMusician(organizationId: string, eventId: string, musicianId: string) {
+  const { error } = await supabase
+    .from("event_musicians")
+    .upsert({ organization_id: organizationId, event_id: eventId, musician_id: musicianId }, { onConflict: "event_id,musician_id" });
+  if (error) throw error;
+}
+
+export async function updateEventMusicianStatus(
+  organizationId: string,
+  assignmentId: string,
+  status: "PENDIENTE" | "CONFIRMADO" | "NO DISPONIBLE",
+) {
+  const { error } = await supabase
+    .from("event_musicians")
+    .update({ status })
+    .eq("id", assignmentId)
+    .eq("organization_id", organizationId);
+  if (error) throw error;
+}
+
+export async function generateEventRider(eventId: string) {
+  const { data, error } = await supabase.rpc("generate_event_rider", { target_event_id: eventId });
+  if (error) throw error;
+  return data as string;
+}
+
+export async function deleteEvent(eventId: string) {
+  const { error } = await supabase.rpc("delete_event", { target_event_id: eventId });
+  if (error) throw error;
+}
+
+export async function updateEventStatus(event: CommercialEvent, status: CommercialEvent["status"], userId: string) {
+  const now = new Date().toISOString();
+  const { error } = await supabase
+    .from("events")
+    .update({
+      status,
+      confirmed_at: status === "CONFIRMADO" ? (event.confirmed_at ?? now) : event.confirmed_at,
+      updated_at: now,
+    })
+    .eq("id", event.id)
+    .eq("organization_id", event.organization_id);
+  if (error) throw error;
+  const eventCopy: Record<CommercialEvent["status"], { action: string; description: string }> = {
+    PENDIENTE: { action: "EVENT_PENDING", description: "Evento marcado como pendiente" },
+    CONFIRMADO: { action: "EVENT_CONFIRMED", description: "Evento confirmado por administración" },
+    "EN CURSO": { action: "EVENT_STARTED", description: "Evento marcado en curso" },
+    REALIZADO: { action: "EVENT_COMPLETED", description: "Evento realizado" },
+    CANCELADO: { action: "EVENT_CANCELLED", description: "Evento cancelado" },
+    CERRADO: { action: "EVENT_CLOSED", description: "Evento cerrado" },
+  };
+  const copy = eventCopy[status];
+  const { error: timelineError } = await supabase.from("commercial_timeline").insert({
+    organization_id: event.organization_id,
+    quote_request_id: event.quote_request_id,
+    quote_id: event.quote_id,
+    event_id: event.id,
+    action: copy.action,
+    description: copy.description,
+    actor_type: "USER",
+    actor_user_id: userId,
+    metadata: { previous_status: event.status, new_status: status },
+  });
+  if (timelineError) throw timelineError;
+}
+
+export async function markTransactionPaid(event: CommercialEvent, transactionId: string, userId: string) {
+  const transaction = event.financial_transactions.find((item) => item.id === transactionId);
+  if (!transaction) throw new Error("Transacción no encontrada");
+  const paidAt = new Date().toISOString();
+  const { error } = await supabase
+    .from("financial_transactions")
+    .update({ status: "PAGADO", paid_at: paidAt, updated_at: paidAt })
+    .eq("id", transactionId)
+    .eq("organization_id", event.organization_id);
+  if (error) throw error;
+  const isDeposit = transaction.concept === "ANTICIPO";
+  const { error: timelineError } = await supabase.from("commercial_timeline").insert({
+    organization_id: event.organization_id,
+    quote_request_id: event.quote_request_id,
+    quote_id: event.quote_id,
+    event_id: event.id,
+    action: isDeposit ? "DEPOSIT_RECEIVED" : "BALANCE_RECEIVED",
+    description: isDeposit ? "Anticipo recibido" : "Saldo recibido",
+    actor_type: "USER",
+    actor_user_id: userId,
+    metadata: { transaction_id: transactionId, amount: transaction.amount, concept: transaction.concept },
+  });
+  if (timelineError) throw timelineError;
+}
