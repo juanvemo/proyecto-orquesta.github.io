@@ -12,6 +12,8 @@ import CalendarPage from "@/pages/CalendarPage";
 import Clients from "@/pages/Clients";
 import CommercialFormSettings from "@/pages/CommercialFormSettings";
 import Community from "@/pages/Community";
+import Contracts from "@/pages/Contracts";
+import PublicContract from "@/pages/PublicContract";
 import DataPolicy from "@/pages/DataPolicy";
 import EmailConfirmed from "@/pages/EmailConfirmed";
 import Events from "@/pages/Events";
@@ -62,6 +64,7 @@ export default function App() {
                 <Route path="/proyecto-orquesta" element={<PublicHome />} />
                 <Route path="/solicitar-cotizacion" element={<RequestQuote />} />
                 <Route path="/cotizacion/:token" element={<PublicQuote />} />
+                <Route path="/contrato/:token" element={<PublicContract />} />
                 <Route path="/convocatoria/:token" element={<PublicRehearsalInvitation />} />
                 <Route path="/politica-datos" element={<DataPolicy />} />
                 <Route path="/login" element={<Login />} />
@@ -111,6 +114,7 @@ export default function App() {
                     </Route>
                     <Route element={<AnyPermissionRoute permissions={["events.manage", "quotes.manage"]} />}>
                       <Route path="eventos" element={<Events />} />
+                      <Route path="contratos" element={<Contracts />} />
                     </Route>
                     <Route element={<AnyPermissionRoute permissions={["technical.manage", "events.manage", "quotes.manage"]} />}>
                       <Route path="produccion-tecnica" element={<TechnicalProduction />} />

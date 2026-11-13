@@ -1,5 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
-import type { AttendanceStatus, InvitationStatus, PublicRehearsalInvitation, Rehearsal, RehearsalFormValues } from "./types";
+import type { AttendanceStatus, InvitationStatus, PublicRehearsalInvitation, Rehearsal, RehearsalAttendance, RehearsalFormValues } from "./types";
 
 const personFields = "id,organization_id,user_id,first_name,last_name,document_type,document_number,birth_date,phone,whatsapp,email,city,photo_url,emergency_contact_name,emergency_contact_phone,observations,level,specialty,experience_years,biography,joined_at,status,participation_type,habitual_rate,event_rate,rehearsal_rate,current_availability_status,created_at,updated_at";
 const rehearsalSelect = `*,responsible:musicians!rehearsals_responsible_musician_id_fkey(${personFields}),rehearsal_musicians(*,musician:musicians(${personFields})),rehearsal_attendance(*,musician:musicians(${personFields}))`;
@@ -59,8 +59,9 @@ export async function respondToRehearsalInvitation(token: string, action: "ACCEP
 }
 
 export async function upsertAttendance(organizationId: string, rehearsalId: string, musicianId: string, status: AttendanceStatus, recordedBy: string, arrivalTime?: string, departureTime?: string, notes?: string) {
-  const { error } = await supabase.from("rehearsal_attendance").upsert({ organization_id: organizationId, rehearsal_id: rehearsalId, musician_id: musicianId, status, arrival_time: arrivalTime || null, departure_time: departureTime || null, notes: notes?.trim() || null, recorded_by: recordedBy, updated_at: new Date().toISOString() }, { onConflict: "rehearsal_id,musician_id" });
+  const { data, error } = await supabase.from("rehearsal_attendance").upsert({ organization_id: organizationId, rehearsal_id: rehearsalId, musician_id: musicianId, status, arrival_time: arrivalTime || null, departure_time: departureTime || null, notes: notes?.trim() || null, recorded_by: recordedBy, updated_at: new Date().toISOString() }, { onConflict: "rehearsal_id,musician_id" }).select("*").single();
   if (error) throw error;
+  return data as Omit<RehearsalAttendance, "musician">;
 }
 
 export async function updateRehearsalStatus(id: string, status: Rehearsal["status"]) {

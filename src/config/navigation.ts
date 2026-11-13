@@ -31,6 +31,7 @@ export const navigationGroups: { label: string; items: NavItem[] }[] = [
     { label: "Clientes y CRM", path: "/clientes", icon: ContactRound, permission: "clients.manage" },
     { label: "Solicitudes", path: "/solicitudes", icon: FileText, permission: "quotes.manage" },
     { label: "Cotizaciones", path: "/cotizaciones", icon: FileText, permission: "quotes.manage" },
+    { label: "Contratos", path: "/contratos", icon: FileText, anyPermission: ["quotes.manage", "events.manage"] },
     { label: "Finanzas", path: "/finanzas", icon: HandCoins, permission: "finances.manage" },
   ] },
   { label: "Administración", items: [

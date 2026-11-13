@@ -4,11 +4,11 @@ import type { RiderContent, RiderStatus, TechnicalEvent } from "./types";
 export async function listTechnicalEvents(organizationId: string) {
   const [eventsResult, organizationResult] = await Promise.all([
     supabase.rpc("get_technical_events", { target_organization_id: organizationId }),
-    supabase.from("organizations").select("name,logo_url").eq("id", organizationId).single(),
+    supabase.from("organizations").select("name,logo_url,email,phone,whatsapp,website,currency_code,timezone").eq("id", organizationId).single(),
   ]);
   if (eventsResult.error) throw eventsResult.error;
   if (organizationResult.error) throw organizationResult.error;
-  return ((eventsResult.data ?? []) as TechnicalEvent[]).map((event) => ({ ...event, organization_name: organizationResult.data.name, organization_logo_url: organizationResult.data.logo_url }));
+  return ((eventsResult.data ?? []) as TechnicalEvent[]).map((event) => ({ ...event, organization_name: organizationResult.data.name, organization_logo_url: organizationResult.data.logo_url, organization_letterhead: organizationResult.data }));
 }
 
 export async function generateTechnicalRider(eventId: string) {

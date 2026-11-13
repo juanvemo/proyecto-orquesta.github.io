@@ -50,6 +50,7 @@ export interface TechnicalEvent {
   name: string;
   organization_name: string;
   organization_logo_url: string | null;
+  organization_letterhead: import("@/features/contracts/types").LetterheadData;
   event_type: string;
   event_date: string;
   start_time: string;
