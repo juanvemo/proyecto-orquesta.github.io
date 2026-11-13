@@ -36,7 +36,7 @@ export async function saveRehearsalCost(input: {
   totalAmount: number;
   description: string;
   collectorName: string;
-  contributions: Array<{ musicianId: string; amount: number; date: string; notes: string }>;
+  contributions: Array<{ id?: string; musicianId: string; amount: number; date: string; notes: string }>;
 }) {
   const { data, error } = await supabase.rpc("save_rehearsal_distribution", {
     target_organization_id: input.organizationId,
@@ -46,6 +46,7 @@ export async function saveRehearsalCost(input: {
     collector_name_value: input.collectorName,
     contributions_data: input.contributions.map((item) => ({
       musician_id: item.musicianId,
+      contribution_id: item.id ?? null,
       amount: item.amount,
       contribution_date: item.date || null,
       notes: item.notes,
